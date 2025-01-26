@@ -13,10 +13,8 @@ def generate_top_level(canvas):
     connections = canvas.data["connections"]
     
     conduits = [block for block in blocks if block.conduit]
-    top_level_ports = []
-    for conduit in conduits:
-        for port in conduit.port_symbols:
-            top_level_ports.append(port)
+    top_level_input_ports = [p for block in conduits for p in block.port_symbols if p.port["dir"] in ["in", "inout"]]
+    top_level_output_ports = [p for block in conduits for p in block.port_symbols if p.port["dir"] in ["out", "inout"]]
     
     parent = {}
     for block in blocks:
@@ -47,17 +45,28 @@ def generate_top_level(canvas):
     signal_names = {}
     signal_counter = 1
     for group_ports in groups.values():
-        if len(group_ports) > 1:
-            conduit_ports = [p for p in group_ports if p in top_level_ports]
-            if conduit_ports:
-                signal_name = conduit_ports[0].port["name"]
-            else:
-                signal_name = f"sig{signal_counter}"
-                signal_counter += 1
-            for port in group_ports:
-                signal_names[port] = signal_name
+        input_conduits = [p for p in group_ports if p in top_level_input_ports]
+        output_conduits = [p for p in group_ports if p in top_level_output_ports]
+        if input_conduits and output_conduits:
+            signal_name = f"sig{signal_counter}"
+            signal_counter +=1
+            for p in group_ports:
+                signal_names[p] = signal_name
+        elif input_conduits:
+            signal_name = input_conduits[0].port["name"]
+            for p in group_ports:
+                signal_names[p] = signal_name
+        elif output_conduits:
+            signal_name = output_conduits[0].port["name"]
+            for p in group_ports:
+                signal_names[p] = signal_name
+        else:
+            signal_name = f"sig{signal_counter}"
+            signal_counter +=1
+            for p in group_ports:
+                signal_names[p] = signal_name
     
-    top_level_signal_names = set(p.port["name"] for p in top_level_ports)
+    top_level_signal_names = set(p.port["name"] for p in conduits for p in p.port_symbols)
     internal_signals = set(signal_names.values()) - top_level_signal_names
     
     all_ports = set(port for block in blocks for port in block.port_symbols)
@@ -71,9 +80,16 @@ def generate_top_level(canvas):
         
         f.write("entity TopLevelAdapter is\n")
         f.write("port(\n")
-        for i, port in enumerate(top_level_ports):
-            line = f"    {port.port['name']} : {port.port['dir']} {port.port['type']}"
-            if i < len(top_level_ports) - 1:
+        all_conduit_ports = [p for block in conduits for p in block.port_symbols]
+        for i, port in enumerate(all_conduit_ports):
+            # **Flip conduit port directions back to original**
+            if port.block.conduit:
+                original_dir = flip_direction(port.port["dir"])
+            else:
+                original_dir = port.port["dir"]
+            
+            line = f"    {port.port['name']} : {original_dir} {port.port['type']}"
+            if i < len(all_conduit_ports) -1:
                 line += ";"
             f.write(line + "\n")
         f.write(");\nend TopLevelAdapter;\n\n")
@@ -83,10 +99,14 @@ def generate_top_level(canvas):
         if internal_signals:
             f.write("    -- Internal Signals\n")
             for sig in internal_signals:
-                port = next(p for p, s in signal_names.items() if s == sig)
-                f.write(f"    signal {sig} : {port.port['type']};\n")
+                # Find a port symbol associated with this signal to get its type
+                associated_ports = [p for p, s in signal_names.items() if s == sig]
+                if associated_ports:
+                    port = associated_ports[0].port
+                    f.write(f"    signal {sig} : {port['type']};\n")
             f.write("\n")
         
+        # Define component declarations for regular blocks
         component_ports = defaultdict(list)
         for block in blocks:
             if block.conduit:
@@ -98,12 +118,13 @@ def generate_top_level(canvas):
             f.write("    port(\n")
             for i, port in enumerate(ports):
                 line = f"        {port['name']} : {port['dir']} {port['type']}"
-                if i < len(ports) - 1:
+                if i < len(ports) -1:
                     line += ";"
                 f.write(line + "\n")
             f.write("    );\n")
             f.write(f"    end component;\n\n")
         
+        # Define component declarations for adapters
         adapter_ports = defaultdict(list)
         for block in blocks:
             if isinstance(block, AdapterBlock):
@@ -114,7 +135,7 @@ def generate_top_level(canvas):
             f.write("    port(\n")
             for i, port in enumerate(ports):
                 line = f"        {port['name']} : {port['dir']} {port['type']}"
-                if i < len(ports) - 1:
+                if i < len(ports) -1:
                     line += ";"
                 f.write(line + "\n")
             f.write("    );\n")
@@ -122,6 +143,7 @@ def generate_top_level(canvas):
         
         f.write("begin\n")
         
+        # Instantiate adapters first
         adapter_instances = []
         for block in blocks:
             if isinstance(block, AdapterBlock):
@@ -145,6 +167,7 @@ def generate_top_level(canvas):
             f.write(",\n".join(port_map_lines))
             f.write("\n    );\n\n")
         
+        # Instantiate regular blocks
         instance_counts = defaultdict(int)
         for block in blocks:
             if block.conduit:
@@ -153,9 +176,9 @@ def generate_top_level(canvas):
                 continue
             if block.name not in component_ports:
                 continue
-            instance_counts[block.name] += 1
-            idx = instance_counts[block.name] - 1
-            instance_name = f"{block.name}_inst{idx}" if instance_counts[block.name] > 1 else f"{block.name}_inst"
+            instance_counts[block.name] +=1
+            idx = instance_counts[block.name] -1
+            instance_name = f"{block.name}_inst{idx}" if instance_counts[block.name] >1 else f"{block.name}_inst"
             f.write(f"    {instance_name} : {block.name} port map(\n")
             port_map_lines = []
             for port_symbol in block.port_symbols:
@@ -174,9 +197,23 @@ def generate_top_level(canvas):
         
         f.write("end rtl;\n")
 
+def flip_direction(direction):
+    """Helper function to flip conduit port directions back to original."""
+    if direction == "in":
+        return "out"
+    elif direction == "out":
+        return "in"
+    else:
+        return direction  # "inout" remains unchanged
+
 def get_default_assignment(vtype):
     vtype = vtype.lower()
     if "std_logic_vector" in vtype:
+        # Extract range if present
+        match = re.search(r'\((\d+):0\)', vtype)
+        if match:
+            width = int(match.group(1)) + 1
+            return f"(others => '0')" if width > 1 else "'0'"
         return "(others => '0')"
     elif "std_logic" in vtype:
         return "'0'"
