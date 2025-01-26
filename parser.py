@@ -91,10 +91,21 @@ def find_entities(directory):
     return entities
 
 def parse_vhdl_range(s):
-    m = re.search(r"\((\d+)\s*downto\s*0\)", s, re.IGNORECASE)
+    """
+    Parses the range in a VHDL type declaration and returns the width.
+    Supports 'downto', 'to', and ':' operators.
+
+    Examples:
+        'std_logic_vector(5 downto 0)' -> 6
+        'std_logic_vector(0 to 5)'    -> 6
+        'std_logic_vector(5:0)'       -> 6
+    """
+    m = re.search(r"\((\d+)\s*(downto|to|:)\s*(\d+)\)", s, re.IGNORECASE)
     if m:
         try:
-            return int(m.group(1)) + 1
+            upper = int(m.group(1))
+            lower = int(m.group(3))
+            return abs(upper - lower) + 1
         except:
             return None
     return None

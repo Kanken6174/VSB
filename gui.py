@@ -127,9 +127,16 @@ def add_conduit(root, canvas):
         if width.isdigit():
             width = int(width)
             if width <= 1:
-                final_type = "std_logic" if base_type.lower() in ["std_logic_vector", "signed", "unsigned"] else base_type
+                # For width <=1, if base_type is std_logic_vector, default to std_logic
+                if base_type.lower() in ["std_logic_vector", "signed", "unsigned", "std_logic"]:
+                    final_type = "std_logic"
+                else:
+                    final_type = base_type
             else:
-                if base_type.lower() in ["signed", "unsigned", "std_logic_vector"]:
+                # For width >1, convert std_logic to std_logic_vector and handle others
+                if base_type.lower() == "std_logic":
+                    final_type = f"std_logic_vector({width-1}:0)"
+                elif base_type.lower() in ["signed", "unsigned", "std_logic_vector"]:
                     final_type = f"{base_type}({width-1}:0)"
                 else:
                     final_type = base_type
@@ -139,5 +146,6 @@ def add_conduit(root, canvas):
         conduit = EntityBlock(canvas, 100, 100, name, [{"name": name, "dir": direction, "type": final_type}], conduit=True)
         canvas.data["blocks"].append(conduit)
         conduit_window.destroy()
+
 
     tk.Button(conduit_window, text="Create", command=create_conduit).pack(pady=10)
