@@ -75,7 +75,7 @@ def parse_vhdl_for_entities(text):
 
 def parse_vhdl_for_components(text):
     text=preprocess_vhdl(text)
-    component_pattern=r"COMPONENT\s+([\w\d_]+)\s+is\s+(.*?)END\s+COMPONENT\s*;"
+    component_pattern = r"COMPONENT\s+([\w\d_]+)\s+is\s+(.*?)END\s+COMPONENT(?:\s+\1)?\s*;"
     found=re.findall(component_pattern,text,flags=re.DOTALL|re.IGNORECASE)
     out=[]
     for compName,compBody in found:
@@ -105,7 +105,7 @@ def find_blocks(directory):
         return []
     for filename in os.listdir(directory):
         lower_filename=filename.lower()
-        if (lower_filename.endswith(".vhd") or lower_filename.endswith(".vhdl")) and not lower_filename.startswith("tb_") and not lower_filename.endswith("_tb.vhd") and not lower_filename.endswith("_tb.vhdl"):
+        if (lower_filename.endswith(".vhd") or lower_filename.endswith(".vhdl")) and not lower_filename.startswith("tb_") and not lower_filename.endswith("_tb.vhd") and not lower_filename.endswith("_tb.vhdl") and not lower_filename.endswith("topleveladapter.vhd"):
             filepath=os.path.join(directory,filename)
             parsed_entities,parsed_components=scan_file(filepath)
             for name,generics,ports in parsed_entities:
