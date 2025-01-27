@@ -32,6 +32,25 @@ def extract_ports(block):
             ports.append({"name": nm, "dir": dr, "type": tp})
     return ports
 
+def extract_generics(block):
+    block = block.strip().replace('\n', ' ').replace('\r', ' ')
+    if not block.endswith(';'):
+        block += ';'
+    items = re.split(r';', block)
+    generics = []
+    for item in items:
+        item = item.strip()
+        if not item:
+            continue
+        # Match generic declarations with optional default values
+        m = re.match(r"([\w\d_]+)\s*:\s*(\w+)\s*(?::=\s*([^;]+))?$", item, re.IGNORECASE)
+        if m:
+            nm = m.group(1).strip()
+            tp = m.group(2).strip()
+            default = m.group(3).strip() if m.group(3) else None
+            generics.append({"name": nm, "type": tp, "default": default})
+    return generics
+
 def parse_vhdl_for_entities(text):
     text = preprocess_vhdl(text)
     entity_pattern = r"entity\s+([\w\d_]+)\s+is\s+(.*?)end\s+\1\s*;"
@@ -39,17 +58,27 @@ def parse_vhdl_for_entities(text):
     out = []
     
     for enName, enBody in found:
+        generic_pattern = r"generic\s*\(\s*(.*?)\s*\)\s*;"
+        pm_gen = re.search(generic_pattern, enBody, flags=re.DOTALL | re.IGNORECASE)
+        generics = []
+        
+        if pm_gen:
+            block_gen = pm_gen.group(1)
+            if DEBUG:
+                print(f"Entity '{enName}' Generics Block:\n{block_gen}\n")
+            generics = extract_generics(block_gen)
+        
         port_pattern = r"port\s*\(\s*(.*)\s*\)\s*;"
-        pm = re.search(port_pattern, enBody, flags=re.DOTALL | re.IGNORECASE)
+        pm_port = re.search(port_pattern, enBody, flags=re.DOTALL | re.IGNORECASE)
         ports = []
         
-        if pm:
-            block = pm.group(1)
+        if pm_port:
+            block_port = pm_port.group(1)
             if DEBUG:
-                print(f"Entity '{enName}' Ports Block:\n{block}\n")
-            ports = extract_ports(block)
+                print(f"Entity '{enName}' Ports Block:\n{block_port}\n")
+            ports = extract_ports(block_port)
         
-        out.append((enName, ports))
+        out.append((enName, generics, ports))
     
     return out
 
@@ -152,11 +181,26 @@ def check_dir(d1, d2):
 def types_compatible(a, b):
     if a["kind"] == b["kind"]:
         if a["kind"] in ["SL", "OTHER"]:
+            if DEBUG:
+                print(f"Types compatible: {a['type']} vs {b['type']}")
             return True
         if a["kind"] in ["SLV", "SIGNED", "UNSIGNED"]:
             if a["width"] is None or b["width"] is None:
+                if DEBUG:
+                    print(f"Types not compatible due to undefined width: {a['width']} vs {b['width']}")
                 return False
-            return a["width"] == b["width"]
+            if a["width"] == b["width"]:
+                if DEBUG:
+                    print(f"Types compatible: {a['type']} vs {b['type']}")
+                return True
+            else:
+                if DEBUG:
+                    print(f"Types not compatible due to width mismatch: {a['width']} vs {b['width']}")
+                return False
         if a["kind"] == "INTEGER":
+            if DEBUG:
+                print("Types compatible: INTEGER")
             return True
+    if DEBUG:
+        print(f"Types not compatible: {a['kind']} vs {b['kind']}")
     return False

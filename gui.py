@@ -12,7 +12,6 @@ def run_gui(directory):
     root = tk.Tk()
     root.title("Efinix System Builder")
 
-    # Left Frame for Entity List and Controls
     left_frame = tk.Frame(root)
     left_frame.pack(side="left", fill="y", padx=5, pady=5)
 
@@ -30,14 +29,12 @@ def run_gui(directory):
     generate_button = tk.Button(left_frame, text="Generate TopLevel", command=lambda: generate_top_level(canvas))
     generate_button.pack(pady=5, fill="x")
 
-    # Right Frame for Canvas
     right_frame = tk.Frame(root)
     right_frame.pack(side="right", expand=True, fill="both")
 
     canvas = tk.Canvas(right_frame, bg="white")
     canvas.pack(expand=True, fill="both")
 
-    # Initialize canvas data
     canvas.data = {
         "connections": [],
         "blocks": [],
@@ -46,7 +43,6 @@ def run_gui(directory):
         "active_port": None
     }
 
-    # Drag and Drop Handlers
     def start_drag(event):
         selection = entity_listbox.curselection()
         if selection:
@@ -70,11 +66,11 @@ def run_gui(directory):
             del canvas.data["drag_label"]
             entity = canvas.data.get("drag_entity")
             if entity:
-                # Get canvas coordinates relative to root window
                 canvas_x = canvas.winfo_pointerx() - canvas.winfo_rootx() - right_frame.winfo_x()
                 canvas_y = canvas.winfo_pointery() - canvas.winfo_rooty() - right_frame.winfo_y()
                 if 0 <= canvas_x <= canvas.winfo_width() and 0 <= canvas_y <= canvas.winfo_height():
-                    block = EntityBlock(canvas, canvas_x, canvas_y, entity[0], entity[1], False)
+                    name, generics, ports = entity
+                    block = EntityBlock(canvas, canvas_x, canvas_y, name, generics, ports, conduit=False)
                     canvas.data["blocks"].append(block)
                 del canvas.data["drag_entity"]
             entity_listbox.unbind("<Motion>")
@@ -117,23 +113,19 @@ def add_conduit(root, canvas):
             messagebox.showerror("Input Error", "Conduit name cannot be empty.")
             return
 
-        # Check for duplicate conduit names
         for block in canvas.data["blocks"]:
             if block.conduit and block.name == name:
                 messagebox.showerror("Duplicate Error", f"Conduit '{name}' already exists.")
                 return
 
-        # Determine type based on width
         if width.isdigit():
             width = int(width)
             if width <= 1:
-                # For width <=1, if base_type is std_logic_vector, default to std_logic
                 if base_type.lower() in ["std_logic_vector", "signed", "unsigned", "std_logic"]:
                     final_type = "std_logic"
                 else:
                     final_type = base_type
             else:
-                # For width >1, convert std_logic to std_logic_vector and handle others
                 if base_type.lower() == "std_logic":
                     final_type = f"std_logic_vector({width-1}:0)"
                 elif base_type.lower() in ["signed", "unsigned", "std_logic_vector"]:
@@ -143,9 +135,8 @@ def add_conduit(root, canvas):
         else:
             final_type = base_type
 
-        conduit = EntityBlock(canvas, 100, 100, name, [{"name": name, "dir": direction, "type": final_type}], conduit=True)
+        conduit = EntityBlock(canvas, 100, 100, name, generics=[], ports=[{"name": name, "dir": direction, "type": final_type}], conduit=True)
         canvas.data["blocks"].append(conduit)
         conduit_window.destroy()
-
 
     tk.Button(conduit_window, text="Create", command=create_conduit).pack(pady=10)
