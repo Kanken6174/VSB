@@ -324,10 +324,13 @@ class EntityBlock:
         self.dragging=False
         self.ox=0
         self.oy=0
-        lines=[name]+[f"{p['dir']} {p['name']}" for p in ports]
-        max_length=max(len(s) for s in lines) if lines else 10
-        self.width=max(100,10*max_length)
-        self.height=max(40+len(ports)*20,60)
+        lines = [name] + [f"{p['dir']} {p['name']}" for p in ports]
+        max_length = max(len(s) for s in lines) if lines else 10
+        self.width = max(100, (12 * max_length))
+        input_count = sum(1 for p in ports if p["dir"] == "in")
+        output_count = sum(1 for p in ports if p["dir"] == "out")
+        max_ports = max(input_count, output_count)
+        self.height = max(40 + max_ports * 20, 60)
         fill_color="lightyellow" if conduit else "lightblue"
         self.obj=self.canvas.create_rectangle(x,y,x+self.width,y+self.height,fill=fill_color,outline="black")
         self.title_id=self.canvas.create_text(x+self.width/2,y+10,text=name,font=("Arial",10),anchor="n",fill="black")
