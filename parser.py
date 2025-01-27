@@ -1,6 +1,8 @@
 # parser.py
 import os
 import re
+from collections import defaultdict
+from utils import extract_kind, extract_width, check_dir, types_compatible
 
 DEBUG = True
 
@@ -42,7 +44,6 @@ def extract_generics(block):
         item = item.strip()
         if not item:
             continue
-        # Match generic declarations with optional default values
         m = re.match(r"([\w\d_]+)\s*:\s*(\w+)\s*(?::=\s*([^;]+))?$", item, re.IGNORECASE)
         if m:
             nm = m.group(1).strip()
@@ -82,19 +83,42 @@ def parse_vhdl_for_entities(text):
     
     return out
 
+def parse_vhdl_for_components(text):
+    text = preprocess_vhdl(text)
+    component_pattern = r"COMPONENT\s+([\w\d_]+)\s+is\s+(.*?)END\s+COMPONENT\s*;"
+    found = re.findall(component_pattern, text, flags=re.DOTALL | re.IGNORECASE)
+    out = []
+    
+    for compName, compBody in found:
+        port_pattern = r"PORT\s*\(\s*(.*)\s*\)\s*;"
+        pm_port = re.search(port_pattern, compBody, flags=re.DOTALL | re.IGNORECASE)
+        ports = []
+        
+        if pm_port:
+            block_port = pm_port.group(1)
+            if DEBUG:
+                print(f"Component '{compName}' Ports Block:\n{block_port}\n")
+            ports = extract_ports(block_port)
+        
+        out.append((compName, [], ports))
+    
+    return out
+
 def scan_file(path):
     if DEBUG:
         print("Scanning file:", path)
     with open(path, "r") as f:
         content = f.read()
-    return parse_vhdl_for_entities(content)
+    entities = parse_vhdl_for_entities(content)
+    components = parse_vhdl_for_components(content)
+    return entities, components
 
-def find_entities(directory):
+def find_blocks(directory):
     if DEBUG:
-        print("Finding entities in directory:", directory)
-    entities = []
+        print("Finding blocks in directory:", directory)
+    blocks_dict = {}
     if not os.path.isdir(directory):
-        return entities
+        return []
     for filename in os.listdir(directory):
         lower_filename = filename.lower()
         if (lower_filename.endswith(".vhd") or lower_filename.endswith(".vhdl")) and \
@@ -102,8 +126,28 @@ def find_entities(directory):
            not lower_filename.endswith("_tb.vhd") and \
            not lower_filename.endswith("_tb.vhdl"):
             filepath = os.path.join(directory, filename)
-            parsed = scan_file(filepath)
-            entities.extend(parsed)
+            parsed_entities, parsed_components = scan_file(filepath)
+            for name, generics, ports in parsed_entities:
+                if name in blocks_dict:
+                    existing_generics = blocks_dict[name][1]
+                    existing_ports = blocks_dict[name][2]
+                    for gen in generics:
+                        if not any(g['name'] == gen['name'] for g in existing_generics):
+                            existing_generics.append(gen)
+                    for port in ports:
+                        if not any(p['name'] == port['name'] for p in existing_ports):
+                            existing_ports.append(port)
+                else:
+                    blocks_dict[name] = (name, generics.copy(), ports.copy())
+            for name, generics, ports in parsed_components:
+                if name in blocks_dict:
+                    existing_generics = blocks_dict[name][1]
+                    existing_ports = blocks_dict[name][2]
+                    for port in ports:
+                        if not any(p['name'] == port['name'] for p in existing_ports):
+                            existing_ports.append(port)
+                else:
+                    blocks_dict[name] = (name, generics.copy(), ports.copy())
     
     ip_dir = os.path.join(directory, "ip")
     if os.path.isdir(ip_dir):
@@ -115,92 +159,28 @@ def find_entities(directory):
                    not lower_file.endswith("_tb.vhd") and \
                    not lower_file.endswith("_tb.vhdl"):
                     filepath = os.path.join(root_dir, file)
-                    parsed = scan_file(filepath)
-                    entities.extend(parsed)
-    return entities
-
-def parse_vhdl_range(s):
-    """
-    Parses the range in a VHDL type declaration and returns the width.
-    Supports 'downto', 'to', and ':' operators.
-
-    Examples:
-        'std_logic_vector(5 downto 0)' -> 6
-        'std_logic_vector(0 to 5)'    -> 6
-        'std_logic_vector(5:0)'       -> 6
-    """
-    m = re.search(r"\((\d+)\s*(downto|to|:)\s*(\d+)\)", s, re.IGNORECASE)
-    if m:
-        try:
-            upper = int(m.group(1))
-            lower = int(m.group(3))
-            return abs(upper - lower) + 1
-        except:
-            return None
-    return None
-
-def extract_width(vtype):
-    st = vtype.lower().strip()
-    if "std_logic" in st:
-        if "vector" in st:
-            w = parse_vhdl_range(st)
-            return w if w else None
-        else:
-            return 1
-    if "signed" in st or "unsigned" in st:
-        w = parse_vhdl_range(st)
-        return w if w else None
-    if "integer" in st:
-        return None
-    return None
-
-def extract_kind(vtype):
-    s = vtype.lower().strip()
-    if "std_logic" in s:
-        if "vector" in s:
-            return "SLV"
-        else:
-            return "SL"
-    if "signed" in s:
-        return "SIGNED"
-    if "unsigned" in s:
-        return "UNSIGNED"
-    if "integer" in s:
-        return "INTEGER"
-    return "OTHER"
-
-def check_dir(d1, d2):
-    if d1 == "out" and d2 in ["in", "inout"]:
-        return True
-    if d1 == "in" and d2 in ["out", "inout"]:
-        return True
-    if d1 == "inout" and d2 in ["in", "out", "inout"]:
-        return True
-    return False
-
-def types_compatible(a, b):
-    if a["kind"] == b["kind"]:
-        if a["kind"] in ["SL", "OTHER"]:
-            if DEBUG:
-                print(f"Types compatible: {a['type']} vs {b['type']}")
-            return True
-        if a["kind"] in ["SLV", "SIGNED", "UNSIGNED"]:
-            if a["width"] is None or b["width"] is None:
-                if DEBUG:
-                    print(f"Types not compatible due to undefined width: {a['width']} vs {b['width']}")
-                return False
-            if a["width"] == b["width"]:
-                if DEBUG:
-                    print(f"Types compatible: {a['type']} vs {b['type']}")
-                return True
-            else:
-                if DEBUG:
-                    print(f"Types not compatible due to width mismatch: {a['width']} vs {b['width']}")
-                return False
-        if a["kind"] == "INTEGER":
-            if DEBUG:
-                print("Types compatible: INTEGER")
-            return True
-    if DEBUG:
-        print(f"Types not compatible: {a['kind']} vs {b['kind']}")
-    return False
+                    parsed_entities, parsed_components = scan_file(filepath)
+                    for name, generics, ports in parsed_entities:
+                        if name in blocks_dict:
+                            existing_generics = blocks_dict[name][1]
+                            existing_ports = blocks_dict[name][2]
+                            for gen in generics:
+                                if not any(g['name'] == gen['name'] for g in existing_generics):
+                                    existing_generics.append(gen)
+                            for port in ports:
+                                if not any(p['name'] == port['name'] for p in existing_ports):
+                                    existing_ports.append(port)
+                        else:
+                            blocks_dict[name] = (name, generics.copy(), ports.copy())
+                    for name, generics, ports in parsed_components:
+                        if name in blocks_dict:
+                            existing_generics = blocks_dict[name][1]
+                            existing_ports = blocks_dict[name][2]
+                            for port in ports:
+                                if not any(p['name'] == port['name'] for p in existing_ports):
+                                    existing_ports.append(port)
+                        else:
+                            blocks_dict[name] = (name, generics.copy(), ports.copy())
+    
+    unique_blocks = list(blocks_dict.values())
+    return unique_blocks

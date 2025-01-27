@@ -94,11 +94,8 @@ def generate_top_level(canvas):
         f.write("port(\n")
         all_conduit_ports = [p for block in conduit_blocks for p in block.port_symbols] + conduit_ports
         for i, port in enumerate(all_conduit_ports):
-            if isinstance(port.block, EntityBlock) or isinstance(port.block, AdapterBlock):
-                if port.block.conduit:
-                    original_dir = flip_direction(port.port["dir"])
-                else:
-                    original_dir = port.port["dir"]
+            if isinstance(port.block, EntityBlock) and port.block.conduit:
+                original_dir = flip_direction(port.port["dir"])
             else:
                 original_dir = port.port["dir"]
             
@@ -124,9 +121,12 @@ def generate_top_level(canvas):
         for block in blocks:
             if block.conduit:
                 continue
-            component_ports[block.name].extend([p.port for p in block.port_symbols])
-            if block.generics:
-                component_generics[block.name].extend(block.generics)
+            if isinstance(block, EntityBlock):
+                component_ports[block.name].extend([p.port for p in block.port_symbols])
+                if block.generics:
+                    component_generics[block.name].extend(block.generics)
+            elif isinstance(block, AdapterBlock):
+                component_ports[block.name].extend([p.port for p in block.port_symbols])
         
         for comp_name, ports in component_ports.items():
             f.write(f"    component {comp_name} is\n")
@@ -140,22 +140,6 @@ def generate_top_level(canvas):
                         line += ";"
                     f.write(line + "\n")
                 f.write("    );\n")
-            f.write("    port(\n")
-            for i, port in enumerate(ports):
-                line = f"        {port['name']} : {port['dir']} {port['type']}"
-                if i < len(ports) -1:
-                    line += ";"
-                f.write(line + "\n")
-            f.write("    );\n")
-            f.write(f"    end component;\n\n")
-        
-        adapter_ports = defaultdict(list)
-        for block in blocks:
-            if isinstance(block, AdapterBlock):
-                adapter_ports[block.name].extend([p.port for p in block.port_symbols])
-        
-        for adapter_name, ports in adapter_ports.items():
-            f.write(f"    component {adapter_name} is\n")
             f.write("    port(\n")
             for i, port in enumerate(ports):
                 line = f"        {port['name']} : {port['dir']} {port['type']}"
@@ -196,63 +180,37 @@ def generate_top_level(canvas):
                 continue
             if isinstance(block, AdapterBlock):
                 continue
-            if block.name not in component_ports:
-                continue
-            if block.generics:
-                continue
-            instance_counts[block.name] +=1
-            idx = instance_counts[block.name] -1
-            instance_name = f"{block.name}_inst{idx}" if instance_counts[block.name] >1 else f"{block.name}_inst"
-            f.write(f"    {instance_name} : {block.name} port map(\n")
-            port_map_lines = []
-            for port_symbol in block.port_symbols:
-                port_name = port_symbol.port["name"]
-                if port_symbol in signal_names:
-                    signal = signal_names.get(port_symbol, port_symbol.port["name"])
-                    port_map_lines.append(f"        {port_name} => {signal}")
+            if isinstance(block, EntityBlock):
+                instance_counts[block.name] +=1
+                idx = instance_counts[block.name] -1
+                instance_name = f"{block.name}_inst{idx}" if instance_counts[block.name] >1 else f"{block.name}_inst"
+                if block.generics:
+                    f.write(f"    {instance_name} : {block.name} generic map(\n")
+                    gen_map_lines = []
+                    for gen in block.generics:
+                        gen_name = gen['name']
+                        gen_value = block.generic_values.get(gen_name, gen.get("default"))
+                        if isinstance(gen_value, str) and not (gen_value.startswith("'") or gen_value.startswith('"')):
+                            gen_value = f'"{gen_value}"'
+                        gen_map_lines.append(f"        {gen_name} => {gen_value}")
+                    f.write(",\n".join(gen_map_lines))
+                    f.write("\n    ) port map(\n")
                 else:
-                    if port_symbol.port["dir"] in ["in", "inout"]:
-                        default_val = get_default_assignment(port_symbol.port["type"])
-                        port_map_lines.append(f"        {port_name} => {default_val}")
+                    f.write(f"    {instance_name} : {block.name} port map(\n")
+                port_map_lines = []
+                for port_symbol in block.port_symbols:
+                    port_name = port_symbol.port["name"]
+                    if port_symbol in signal_names:
+                        signal = signal_names.get(port_symbol, port_symbol.port["name"])
+                        port_map_lines.append(f"        {port_name} => {signal}")
                     else:
-                        port_map_lines.append(f"        {port_name} => open")
-            f.write(",\n".join(port_map_lines))
-            f.write("\n    );\n\n")
-        
-        for block in blocks:
-            if block.conduit:
-                continue
-            if isinstance(block, AdapterBlock):
-                continue
-            if not block.generics:
-                continue
-            instance_counts[block.name] +=1
-            idx = instance_counts[block.name] -1
-            instance_name = f"{block.name}_inst{idx}" if instance_counts[block.name] >1 else f"{block.name}_inst"
-            f.write(f"    {instance_name} : {block.name} generic map(\n")
-            gen_map_lines = []
-            for gen in block.generics:
-                gen_name = gen['name']
-                gen_value = block.generic_values.get(gen_name, gen.get("default"))
-                if isinstance(gen_value, str) and not (gen_value.startswith("'") or gen_value.startswith('"')):
-                    gen_value = f'"{gen_value}"'
-                gen_map_lines.append(f"        {gen_name} => {gen_value}")
-            f.write(",\n".join(gen_map_lines))
-            f.write("\n    ) port map(\n")
-            port_map_lines = []
-            for port_symbol in block.port_symbols:
-                port_name = port_symbol.port["name"]
-                if port_symbol in signal_names:
-                    signal = signal_names.get(port_symbol, port_symbol.port["name"])
-                    port_map_lines.append(f"        {port_name} => {signal}")
-                else:
-                    if port_symbol.port["dir"] in ["in", "inout"]:
-                        default_val = get_default_assignment(port_symbol.port["type"])
-                        port_map_lines.append(f"        {port_name} => {default_val}")
-                    else:
-                        port_map_lines.append(f"        {port_name} => open")
-            f.write(",\n".join(port_map_lines))
-            f.write("\n    );\n\n")
+                        if port_symbol.port["dir"] in ["in", "inout"]:
+                            default_val = get_default_assignment(port_symbol.port["type"])
+                            port_map_lines.append(f"        {port_name} => {default_val}")
+                        else:
+                            port_map_lines.append(f"        {port_name} => open")
+                f.write(",\n".join(port_map_lines))
+                f.write("\n    );\n\n")
         
         f.write("end rtl;\n")
 

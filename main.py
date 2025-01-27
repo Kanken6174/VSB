@@ -10,7 +10,7 @@ def main():
         directory = sys.argv[1]
     else:
         root = tk.Tk()
-        root.withdraw()  # Hide the root window
+        root.withdraw()
         directory = filedialog.askdirectory(title="Select VHDL Project Directory")
         root.destroy()
     
