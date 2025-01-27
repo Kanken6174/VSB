@@ -1,13 +1,11 @@
-# utils.py
 import re
 
-def extract_kind(vtype):
-    s=vtype.lower().strip()
+def extract_kind(v):
+    s=v.lower().strip()
     if "std_logic" in s:
         if "vector" in s:
             return "SLV"
-        else:
-            return "SL"
+        return "SL"
     if "signed" in s:
         return "SIGNED"
     if "unsigned" in s:
@@ -16,29 +14,17 @@ def extract_kind(vtype):
         return "INTEGER"
     return "OTHER"
 
-def extract_width(vtype):
-    def parse_vhdl_range(s):
-        m=re.search(r"\((\d+)\s*(downto|to|:)\s*(\d+)\)",s,re.IGNORECASE)
-        if m:
-            try:
-                upper=int(m.group(1))
-                lower=int(m.group(3))
-                return abs(upper-lower)+1
-            except:
-                return None
-        return None
-    st=vtype.lower().strip()
-    if "std_logic" in st:
-        if "vector" in st:
-            w=parse_vhdl_range(st)
-            return w if w else None
-        else:
-            return 1
-    if "signed" in st or "unsigned" in st:
-        w=parse_vhdl_range(st)
-        return w if w else None
-    if "integer" in st:
-        return None
+def extract_width(v):
+    m=re.search(r"\((\d+)\s*(?:downto|to|:)\s*(\d+)\)",v,re.IGNORECASE)
+    if m:
+        try:
+            u=int(m.group(1))
+            l=int(m.group(2))
+            return abs(u-l)+1
+        except:
+            return None
+    if "std_logic" in v.lower() and "vector" not in v.lower():
+        return 1
     return None
 
 def check_dir(d1,d2):
@@ -51,16 +37,13 @@ def check_dir(d1,d2):
     return False
 
 def types_compatible(a,b):
-    if a["kind"]==b["kind"]:
-        if a["kind"] in ["SL","OTHER"]:
+    ka=a["kind"].lower()
+    kb=b["kind"].lower()
+    if ka==kb:
+        if ka in ["sl","other"]:
             return True
-        if a["kind"] in ["SLV","SIGNED","UNSIGNED"]:
-            if a["width"] is None or b["width"] is None:
-                return False
-            if a["width"]==b["width"]:
-                return True
-            else:
-                return False
-        if a["kind"]=="INTEGER":
+        if ka in ["slv","signed","unsigned"]:
+            return a.get("width")==b.get("width")
+        if ka=="integer":
             return True
     return False

@@ -1,162 +1,153 @@
-# parser.py
 import os
 import re
-from collections import defaultdict
-from utils import extract_kind, extract_width, check_dir, types_compatible
 
-DEBUG=True
+def preprocess_vhdl(t):
+    lines = t.split('\n')
+    r = []
+    for l in lines:
+        i = l.find('--')
+        if i != -1:
+            l = l[:i]
+        r.append(l)
+    return '\n'.join(r)
 
-def preprocess_vhdl(text):
-    lines=text.split('\n')
-    out=[]
-    for line in lines:
-        idx=line.find('--')
-        if idx!=-1:
-            line=line[:idx]
-        out.append(line)
-    return '\n'.join(out)
-
-def extract_ports(block):
-    block=block.strip().replace('\n',' ').replace('\r',' ')
-    if not block.endswith(';'):
-        block+=';'
-    items=re.split(r';',block)
-    ports=[]
-    for item in items:
-        item=item.strip()
-        if not item:
+def extract_ports(b):
+    b = b.strip().replace('\n',' ').replace('\r',' ')
+    if not b.endswith(';'):
+        b += ';'
+    items = re.split(r';', b)
+    ports = []
+    for it in items:
+        it = it.strip()
+        if not it:
             continue
-        m=re.match(r"([\w\d_]+)\s*:\s*(in|out|inout)\s+(.+)$",item,re.IGNORECASE)
+        m = re.match(r"([\w\d_]+)\s*:\s*(in|out|inout)\s+(.+)$", it, re.IGNORECASE)
         if m:
-            nm=m.group(1).strip()
-            dr=m.group(2).lower().strip()
-            tp=m.group(3).strip().rstrip(',')
+            nm = m.group(1).strip()
+            dr = m.group(2).lower().strip()
+            tp = m.group(3).strip().rstrip(',')
             ports.append({"name":nm,"dir":dr,"type":tp})
     return ports
 
-def extract_generics(block):
-    block=block.strip().replace('\n',' ').replace('\r',' ')
-    if not block.endswith(';'):
-        block+=';'
-    items=re.split(r';',block)
-    generics=[]
-    for item in items:
-        item=item.strip()
-        if not item:
+def extract_generics(b):
+    b = b.strip().replace('\n',' ').replace('\r',' ')
+    if not b.endswith(';'):
+        b += ';'
+    items = re.split(r';', b)
+    gens = []
+    for it in items:
+        it = it.strip()
+        if not it:
             continue
-        m=re.match(r"([\w\d_]+)\s*:\s*(\w+)\s*(?::=\s*([^;]+))?$",item,re.IGNORECASE)
+        m = re.match(r"([\w\d_]+)\s*:\s*(\w+)\s*(?::=\s*([^;]+))?$", it, re.IGNORECASE)
         if m:
-            nm=m.group(1).strip()
-            tp=m.group(2).strip()
-            default=m.group(3).strip() if m.group(3) else None
-            generics.append({"name":nm,"type":tp,"default":default})
-    return generics
+            nm = m.group(1).strip()
+            tp = m.group(2).strip()
+            d  = m.group(3).strip() if m.group(3) else None
+            gens.append({"name":nm,"type":tp,"default":d})
+    return gens
 
-def parse_vhdl_for_entities(text):
-    text=preprocess_vhdl(text)
-    entity_pattern=r"entity\s+([\w\d_]+)\s+is\s+(.*?)end\s+\1\s*;"
-    found=re.findall(entity_pattern,text,flags=re.DOTALL|re.IGNORECASE)
-    out=[]
-    for enName,enBody in found:
-        generic_pattern=r"generic\s*\(\s*(.*?)\s*\)\s*;"
-        pm_gen=re.search(generic_pattern,enBody,flags=re.DOTALL|re.IGNORECASE)
-        generics=[]
-        if pm_gen:
-            block_gen=pm_gen.group(1)
-            generics=extract_generics(block_gen)
-        port_pattern=r"port\s*\(\s*(.*)\s*\)\s*;"
-        pm_port=re.search(port_pattern,enBody,flags=re.DOTALL|re.IGNORECASE)
-        ports=[]
-        if pm_port:
-            block_port=pm_port.group(1)
-            ports=extract_ports(block_port)
-        out.append((enName,generics,ports))
+def parse_vhdl_for_entities(t):
+    txt = preprocess_vhdl(t)
+    p = r"entity\s+([\w\d_]+)\s+is\s+(.*?)end\s+\1\s*;"
+    found = re.findall(p, txt, flags=re.DOTALL|re.IGNORECASE)
+    out = []
+    for en, bd in found:
+        gp = re.search(r"generic\s*\(\s*(.*?)\s*\)\s*;", bd, flags=re.DOTALL|re.IGNORECASE)
+        gs = []
+        if gp:
+            gs = extract_generics(gp.group(1))
+        pp = re.search(r"port\s*\(\s*(.*)\s*\)\s*;", bd, flags=re.DOTALL|re.IGNORECASE)
+        ps = []
+        if pp:
+            ps = extract_ports(pp.group(1))
+        out.append((en, gs, ps))
     return out
 
-def parse_vhdl_for_components(text):
-    text=preprocess_vhdl(text)
-    component_pattern = r"COMPONENT\s+([\w\d_]+)\s+is\s+(.*?)END\s+COMPONENT(?:\s+\1)?\s*;"
-    found=re.findall(component_pattern,text,flags=re.DOTALL|re.IGNORECASE)
-    out=[]
-    for compName,compBody in found:
-        port_pattern=r"PORT\s*\(\s*(.*)\s*\)\s*;"
-        pm_port=re.search(port_pattern,compBody,flags=re.DOTALL|re.IGNORECASE)
-        ports=[]
+def parse_vhdl_for_components(t):
+    txt = preprocess_vhdl(t)
+    p = r"COMPONENT\s+([\w\d_]+)\s+is\s+(.*?)END\s+COMPONENT(?:\s+\1)?\s*;"
+    found = re.findall(p, txt, flags=re.DOTALL|re.IGNORECASE)
+    out = []
+    for cn, bd in found:
+        pm_port = re.search(r"PORT\s*\(\s*(.*)\s*\)\s*;", bd, flags=re.DOTALL|re.IGNORECASE)
+        ports = []
         if pm_port:
-            block_port=pm_port.group(1)
-            ports=extract_ports(block_port)
-        out.append((compName,[],ports))
+            ports = extract_ports(pm_port.group(1))
+        out.append((cn, [], ports))
     return out
 
-def scan_file(path):
-    if DEBUG:
-        print("Scanning file:",path)
-    with open(path,"r") as f:
-        content=f.read()
-    entities=parse_vhdl_for_entities(content)
-    components=parse_vhdl_for_components(content)
-    return entities,components
+def scan_file(pa):
+    with open(pa, "r") as ff:
+        c = ff.read()
+    e = parse_vhdl_for_entities(c)
+    co = parse_vhdl_for_components(c)
+    return e, co
 
-def find_blocks(directory):
-    if DEBUG:
-        print("Finding blocks in directory:",directory)
-    blocks_dict={}
-    if not os.path.isdir(directory):
+def find_blocks(d):
+    bd = {}
+    if not os.path.isdir(d):
         return []
-    for filename in os.listdir(directory):
-        lower_filename=filename.lower()
-        if (lower_filename.endswith(".vhd") or lower_filename.endswith(".vhdl")) and not lower_filename.startswith("tb_") and not lower_filename.endswith("_tb.vhd") and not lower_filename.endswith("_tb.vhdl") and not lower_filename.endswith("topleveladapter.vhd"):
-            filepath=os.path.join(directory,filename)
-            parsed_entities,parsed_components=scan_file(filepath)
-            for name,generics,ports in parsed_entities:
-                if name in blocks_dict:
-                    existing_generics=blocks_dict[name][1]
-                    existing_ports=blocks_dict[name][2]
-                    for gen in generics:
-                        if not any(g['name']==gen['name'] for g in existing_generics):
-                            existing_generics.append(gen)
-                    for port in ports:
-                        if not any(p['name']==port['name'] for p in existing_ports):
-                            existing_ports.append(port)
+    for fn in os.listdir(d):
+        lf = fn.lower()
+        if (lf.endswith(".vhd") or lf.endswith(".vhdl")) and \
+           not lf.startswith("tb_") and \
+           not lf.endswith("_tb.vhd") and \
+           not lf.endswith("_tb.vhdl") and \
+           not lf.endswith("topleveladapter.vhd"):
+            fp = os.path.join(d, fn)
+            pe, pc = scan_file(fp)
+            for name,g,p in pe:
+                if name in bd:
+                    eg = bd[name][1]
+                    ep = bd[name][2]
+                    for gg in g:
+                        if not any(x['name']==gg['name'] for x in eg):
+                            eg.append(gg)
+                    for pp in p:
+                        if not any(x['name']==pp['name'] for x in ep):
+                            ep.append(pp)
                 else:
-                    blocks_dict[name]=(name,generics.copy(),ports.copy())
-            for name,generics,ports in parsed_components:
-                if name in blocks_dict:
-                    existing_generics=blocks_dict[name][1]
-                    existing_ports=blocks_dict[name][2]
-                    for port in ports:
-                        if not any(p['name']==port['name'] for p in existing_ports):
-                            existing_ports.append(port)
+                    bd[name] = (name, g.copy(), p.copy())
+            for name,g,p in pc:
+                if name in bd:
+                    eg = bd[name][1]
+                    ep = bd[name][2]
+                    for pp in p:
+                        if not any(x['name']==pp['name'] for x in ep):
+                            ep.append(pp)
                 else:
-                    blocks_dict[name]=(name,generics.copy(),ports.copy())
-    ip_dir=os.path.join(directory,"ip")
-    if os.path.isdir(ip_dir):
-        for root_dir,dirs,files in os.walk(ip_dir):
-            for file in files:
-                lf=file.lower()
-                if (lf.endswith(".vhd") or lf.endswith(".vhdl")) and not lf.startswith("tb_") and not lf.endswith("_tb.vhd") and not lf.endswith("_tb.vhdl"):
-                    filepath=os.path.join(root_dir,file)
-                    parsed_entities,parsed_components=scan_file(filepath)
-                    for name,generics,ports in parsed_entities:
-                        if name in blocks_dict:
-                            existing_generics=blocks_dict[name][1]
-                            existing_ports=blocks_dict[name][2]
-                            for gen in generics:
-                                if not any(g['name']==gen['name'] for g in existing_generics):
-                                    existing_generics.append(gen)
-                            for port in ports:
-                                if not any(p['name']==port['name'] for p in existing_ports):
-                                    existing_ports.append(port)
+                    bd[name] = (name, g.copy(), p.copy())
+    ipd = os.path.join(d, "ip")
+    if os.path.isdir(ipd):
+        for root, dirs, files in os.walk(ipd):
+            for fl in files:
+                lfl = fl.lower()
+                if (lfl.endswith(".vhd") or lfl.endswith(".vhdl")) and \
+                   not lfl.startswith("tb_") and \
+                   not lfl.endswith("_tb.vhd") and \
+                   not lfl.endswith("_tb.vhdl"):
+                    fp = os.path.join(root, fl)
+                    pe, pc = scan_file(fp)
+                    for name,g,p in pe:
+                        if name in bd:
+                            eg = bd[name][1]
+                            ep = bd[name][2]
+                            for gg in g:
+                                if not any(x['name']==gg['name'] for x in eg):
+                                    eg.append(gg)
+                            for pp in p:
+                                if not any(x['name']==pp['name'] for x in ep):
+                                    ep.append(pp)
                         else:
-                            blocks_dict[name]=(name,generics.copy(),ports.copy())
-                    for name,generics,ports in parsed_components:
-                        if name in blocks_dict:
-                            existing_generics=blocks_dict[name][1]
-                            existing_ports=blocks_dict[name][2]
-                            for port in ports:
-                                if not any(p['name']==port['name'] for p in existing_ports):
-                                    existing_ports.append(port)
+                            bd[name] = (name, g.copy(), p.copy())
+                    for name,g,p in pc:
+                        if name in bd:
+                            eg = bd[name][1]
+                            ep = bd[name][2]
+                            for pp in p:
+                                if not any(x['name']==pp['name'] for x in ep):
+                                    ep.append(pp)
                         else:
-                            blocks_dict[name]=(name,generics.copy(),ports.copy())
-    unique_blocks=list(blocks_dict.values())
-    return unique_blocks
+                            bd[name] = (name, g.copy(), p.copy())
+    return list(bd.values())

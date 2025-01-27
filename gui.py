@@ -1,239 +1,263 @@
-# gui.py
 import tkinter as tk
 import os
-from tkinter import messagebox
-from parser import find_blocks
-from gui_components import EntityBlock, AdapterBlock
-from generator import generate_top_level
 import json
+from parser import find_blocks
+from entity_block import EntityBlock
+from adapter_block import AdapterBlock
+from generator import generate_top_level
 
-def load_previous_configuration(canvas,json_path):
-    if not os.path.exists(json_path):
+def create_adapter(canvas, mx, my, atypeA, atypeB, source_port, target_port, old_line, inherited_color):
+    if old_line:
+        canvas.delete(old_line)
+    adapter = AdapterBlock(canvas, mx, my, atypeA, atypeB, "Convert", inherited_color)
+    canvas.data["blocks"].append(adapter)
+    adapter.left_port.port["type"] = atypeA["type"]
+    adapter.right_port.port["type"] = atypeB["type"]
+    line1 = canvas.create_line(source_port.x, source_port.y, adapter.left_port.x, adapter.left_port.y,
+        fill = source_port.color if source_port.color else "black", tags=("wire",),
+        smooth=True, splinesteps=36, width=3)
+    canvas.data["connections"].append((source_port, adapter.left_port, line1, adapter))
+    line2 = canvas.create_line(adapter.right_port.x, adapter.right_port.y, target_port.x, target_port.y,
+        fill = source_port.color if source_port.color else "black", tags=("wire",),
+        smooth=True, splinesteps=36, width=3)
+    canvas.data["connections"].append((adapter.right_port, target_port, line2, adapter))
+    canvas.tag_bind("wire", "<Button-3>", lambda e: wire_right_click(e, canvas))
+
+def wire_right_click(e, canvas):
+    w = canvas.find_closest(e.x, e.y)[0]
+    if "wire" in canvas.gettags(w):
+        m = tk.Menu(canvas, tearoff=0)
+        m.add_command(label="Disconnect", command=lambda: disconnect_wire(canvas, w))
+        m.post(e.x_root, e.y_root)
+
+def disconnect_wire(canvas, w):
+    canvas.delete(w)
+    cs = canvas.data["connections"]
+    r = [x for x in cs if x[2] == w]
+    for x in r:
+        cs.remove(x)
+
+def load_previous_configuration(canvas, path):
+    if not os.path.exists(path):
         return
-    with open(json_path,"r") as f:
-        data=json.load(f)
-    blocks_data=data.get("blocks",[])
-    connections_data=data.get("connections",[])
-    new_blocks=[]
-    for bd in blocks_data:
-        t=bd["type"]
-        n=bd["name"]
-        x=bd["x"]
-        y=bd["y"]
-        if t=="adapter":
-            ab=AdapterBlock(canvas,x,y,{"kind":"SLV","width":1},{"kind":"SLV","width":1},"Convert") 
-            ab.name=n
-            canvas.itemconfig(ab.text,text=n)
-            ab.x=x
-            ab.y=y
-            coords=canvas.coords(ab.obj)
-            cx=(coords[0]+coords[4])/2
-            cy=(coords[1]+coords[5])/2
-            dx=x-cx
-            dy=y-cy
-            canvas.move(ab.obj,dx,dy)
-            canvas.move(ab.text,dx,dy)
-            ab.left_port.x=x-30
-            ab.left_port.y=y
-            ab.right_port.x=x+30
-            ab.right_port.y=y
-            canvas.move(ab.left_port.id,dx,dy)
-            canvas.move(ab.left_port.label_id,dx,dy)
-            canvas.move(ab.right_port.id,dx,dy)
-            canvas.move(ab.right_port.label_id,dx,dy)
-            new_blocks.append(ab)
+    with open(path, "r") as f:
+        data = json.load(f)
+    bdata = data.get("blocks", [])
+    cdata = data.get("connections", [])
+    nb = []
+    for bd in bdata:
+        t = bd["type"]
+        n = bd["name"]
+        x = bd["x"]
+        y = bd["y"]
+        if t == "adapter":
+            a = AdapterBlock(canvas, x, y, {"kind":"SLV","width":1}, {"kind":"SLV","width":1}, "Convert")
+            a.name = n
+            canvas.itemconfig(a.text, text=n)
+            a.x = x
+            a.y = y
+            co = canvas.coords(a.obj)
+            cx = (co[0] + co[4]) / 2
+            cy = (co[1] + co[5]) / 2
+            dx = x - cx
+            dy = y - cy
+            canvas.move(a.obj, dx, dy)
+            canvas.move(a.text, dx, dy)
+            a.left_port.x = x - 30
+            a.left_port.y = y
+            a.right_port.x = x + 30
+            a.right_port.y = y
+            canvas.move(a.left_port.id, dx, dy)
+            canvas.move(a.left_port.label_id, dx, dy)
+            canvas.move(a.right_port.id, dx, dy)
+            canvas.move(a.right_port.label_id, dx, dy)
+            nb.append(a)
         else:
-            gen=bd.get("generics",[])
-            ports=bd.get("ports",[])
-            ent_ports=[]
-            for p in ports:
-                ent_ports.append({"name":p["port_name"],"dir":p["port_dir"],"type":p["port_type"]})
-            eb=EntityBlock(canvas,x,y,n,gen,ent_ports,bd.get("conduit",False))
-            eb.name=n
-            eb.x=x
-            eb.y=y
+            g = bd.get("generics", [])
+            ps = bd.get("ports", [])
+            ep = []
+            for p_ in ps:
+                ep.append({
+                    "name": p_["port_name"],
+                    "dir":  p_["port_dir"],
+                    "type": p_["port_type"]
+                })
+            e = EntityBlock(canvas, x, y, n, g, ep, bd.get("conduit",False))
+            e.name = n
+            e.x = x
+            e.y = y
             if bd.get("generic_values"):
-                eb.generic_values=bd["generic_values"]
-            coords=canvas.coords(eb.obj)
-            dx=x-coords[0]
-            dy=y-coords[1]
-            canvas.move(eb.obj,dx,dy)
-            canvas.move(eb.title_id,dx,dy)
-            for i,ps in enumerate(eb.port_symbols):
-                px=ports[i]["x"]
-                py=ports[i]["y"]
-                pdx=px-ps.x
-                pdy=py-ps.y
-                ps.x=px
-                ps.y=py
-                canvas.move(ps.id,pdx,pdy)
-                canvas.move(ps.label_id,pdx,pdy)
-                ps.is_conduit=ports[i]["is_conduit"]
-                if ps.is_conduit:
-                    canvas.itemconfig(ps.id,outline="red")
-            new_blocks.append(eb)
-    canvas.data["blocks"].extend(new_blocks)
-    name_map={}
-    for b in new_blocks:
-        name_map[b.name]=b
-    ports_map={}
-    for b in new_blocks:
-        for ps in b.port_symbols:
-            ports_map[(b.name,ps.port["name"])]=ps
-    for c in connections_data:
-        block1=c["block1"]
-        block2=c["block2"]
-        port1=c["port1"]
-        port2=c["port2"]
-        if (block1,port1) in ports_map and (block2,port2) in ports_map:
-            p1=ports_map[(block1,port1)]
-            p2=ports_map[(block2,port2)]
-            if p1.color:
-                line_color=p1.color
-            else:
-                line_color="black"
-            line=canvas.create_line(p1.x,p1.y,p2.x,p2.y,fill=line_color,tags=("wire",),smooth=True,splinesteps=36,width=3)
-            canvas.data["connections"].append((p1,p2,line,None))
-            cx1=p1.x+(p2.x-p1.x)/2
-            cy1=p1.y
-            cx2=p1.x+(p2.x-p1.x)/2
-            cy2=p2.y
-            canvas.coords(line,p1.x,p1.y,cx1,cy1,cx2,cy2,p2.x,p2.y)
+                e.generic_values = bd["generic_values"]
+            co = canvas.coords(e.obj)
+            dx = x - co[0]
+            dy = y - co[1]
+            canvas.move(e.obj, dx, dy)
+            canvas.move(e.text, dx, dy)
+            for i,pps in enumerate(e.port_symbols):
+                px = ps[i]["x"]
+                py = ps[i]["y"]
+                pdx = px - pps.x
+                pdy = py - pps.y
+                pps.x = px
+                pps.y = py
+                canvas.move(pps.id, pdx, pdy)
+                canvas.move(pps.label_id, pdx, pdy)
+                pps.is_conduit = ps[i]["is_conduit"]
+                if pps.is_conduit:
+                    canvas.itemconfig(pps.id, outline="red")
+            nb.append(e)
+    canvas.data["blocks"].extend(nb)
+    nm = {}
+    for x in nb:
+        nm[x.name] = x
+    pm = {}
+    for x in nb:
+        for ps in x.port_symbols:
+            pm[(x.name, ps.port["name"])] = ps
+    for c_ in cdata:
+        b1 = c_["block1"]
+        b2 = c_["block2"]
+        p1 = c_["port1"]
+        p2 = c_["port2"]
+        if (b1, p1) in pm and (b2, p2) in pm:
+            pp1 = pm[(b1, p1)]
+            pp2 = pm[(b2, p2)]
+            cl = pp1.color if pp1.color else "black"
+            ln = canvas.create_line(pp1.x, pp1.y, pp2.x, pp2.y, fill=cl, tags=("wire",),
+                                    smooth=True, splinesteps=36, width=3)
+            canvas.data["connections"].append((pp1, pp2, ln, None))
+            cx1 = pp1.x + (pp2.x - pp1.x)/2
+            cy1 = pp1.y
+            cx2 = pp1.x + (pp2.x - pp1.x)/2
+            cy2 = pp2.y
+            canvas.coords(ln, pp1.x, pp1.y, cx1, cy1, cx2, cy2, pp2.x, pp2.y)
     for w in canvas.find_withtag("wire"):
-        canvas.tag_bind(w,"<Button-3>",lambda e: wire_right_click(e,canvas))
-
-def wire_right_click(event,canvas):
-    wire=canvas.find_closest(event.x,event.y)[0]
-    if "wire" in canvas.gettags(wire):
-        menu=tk.Menu(canvas,tearoff=0)
-        menu.add_command(label="Disconnect",command=lambda:disconnect_wire(canvas,wire))
-        menu.post(event.x_root,event.y_root)
-
-def disconnect_wire(canvas,wire_id):
-    canvas.delete(wire_id)
-    cs=canvas.data["connections"]
-    to_del=[c for c in cs if c[2]==wire_id]
-    for td in to_del:
-        cs.remove(td)
+        canvas.tag_bind(w, "<Button-3>", lambda e: wire_right_click(e, canvas))
 
 def run_gui(directory):
-    blocks=find_blocks(directory)
-    root=tk.Tk()
+    blocks = find_blocks(directory)
+    root = tk.Tk()
     root.title("Efinix System Builder")
-    left_frame=tk.Frame(root)
-    left_frame.pack(side="left",fill="y",padx=5,pady=5)
-    tk.Label(left_frame,text="Available Blocks").pack()
-    blocks_listbox=tk.Listbox(left_frame)
-    blocks_listbox.pack(fill="both",expand=True)
-    for block in blocks:
-        name,generics,ports=block
-        if generics==[] and ports==[]:
-            block_type="Empty Block"
-        else:
-            block_type="Entity/Component"
-        blocks_listbox.insert("end",f"{block_type}: {name}")
-    add_conduit_button=tk.Button(left_frame,text="New Conduit",command=lambda:add_conduit(root,canvas))
-    add_conduit_button.pack(pady=5,fill="x")
-    generate_button=tk.Button(left_frame,text="Generate TopLevel",command=lambda:generate_top_level(canvas))
-    generate_button.pack(pady=5,fill="x")
-    right_frame=tk.Frame(root)
-    right_frame.pack(side="right",expand=True,fill="both")
-    canvas=tk.Canvas(right_frame,bg="white")
-    canvas.pack(expand=True,fill="both")
-    canvas.data={
-        "connections":[],
-        "blocks":[],
-        "port_map":{},
-        "active_line":None,
-        "active_port":None,
-        "project_root":directory
+    left_frame = tk.Frame(root)
+    left_frame.pack(side="left", fill="y", padx=5, pady=5)
+
+    tk.Label(left_frame, text="Available Blocks").pack()
+    blocks_listbox = tk.Listbox(left_frame)
+    blocks_listbox.pack(fill="both", expand=True)
+    for b in blocks:
+        nm, gen, pts = b
+        blocks_listbox.insert("end",
+            ("Empty Block: " if not gen and not pts else "Entity/Component: ")
+            + nm
+        )
+
+    def add_conduit(root_window, cvs):
+        w = tk.Toplevel(root_window)
+        w.title("New Conduit")
+        tk.Label(w, text="Name:").pack()
+        ne = tk.Entry(w)
+        ne.insert(0, "sig")
+        ne.pack()
+        tk.Label(w, text="Direction:").pack()
+        dv = tk.StringVar(w, "in")
+        tk.OptionMenu(w, dv, "in", "out", "inout").pack()
+        tk.Label(w, text="Bit width:").pack()
+        we = tk.Entry(w)
+        we.insert(0, "1")
+        we.pack()
+        tk.Label(w, text="Base Type:").pack()
+        te = tk.Entry(w)
+        te.insert(0, "std_logic")
+        te.pack()
+        def ok():
+            nm = ne.get().strip()
+            dr = dv.get()
+            wd = we.get().strip()
+            bt = te.get().strip()
+            if not nm:
+                tk.messagebox.showerror("Error", "Conduit name cannot be empty.")
+                return
+            for bb in cvs.data["blocks"]:
+                if hasattr(bb, "conduit") and bb.conduit and bb.name == nm:
+                    tk.messagebox.showerror("Error", "Conduit '" + nm + "' already exists.")
+                    return
+            final_type = bt
+            if wd.isdigit():
+                wd = int(wd)
+                if wd <= 1:
+                    if bt.lower() in ["std_logic_vector", "signed", "unsigned", "std_logic"]:
+                        final_type = "std_logic"
+                else:
+                    if bt.lower() == "std_logic":
+                        final_type = "std_logic_vector(" + str(wd - 1) + ":0)"
+                    elif bt.lower() in ["signed", "unsigned", "std_logic_vector"]:
+                        final_type = bt + "(" + str(wd - 1) + ":0)"
+            e = EntityBlock(cvs, 100, 100, nm, [], [{"name":nm, "dir":dr, "type":final_type}], True)
+            cvs.data["blocks"].append(e)
+            w.destroy()
+        tk.Button(w, text="Create", command=ok).pack()
+
+    add_conduit_button = tk.Button(left_frame, text="New Conduit", command=lambda: add_conduit(root, canvas))
+    add_conduit_button.pack(pady=5, fill="x")
+
+    generate_button = tk.Button(left_frame, text="Generate TopLevel", command=lambda: generate_top_level(canvas))
+    generate_button.pack(pady=5, fill="x")
+
+    right_frame = tk.Frame(root)
+    right_frame.pack(side="right", expand=True, fill="both")
+    canvas = tk.Canvas(right_frame, bg="white")
+    canvas.pack(expand=True, fill="both")
+
+    canvas.data = {
+        "connections": [],
+        "blocks": [],
+        "port_map": {},
+        "active_line": None,
+        "active_port": None,
+        "project_root": directory
     }
-    load_previous_configuration(canvas,os.path.join(directory,"TopLevelAdapter.json"))
-    def start_drag(event):
-        selection=blocks_listbox.curselection()
-        if selection:
-            index=selection[0]
-            item=blocks_listbox.get(index)
-            block_info=item.split(": ")
-            if len(block_info)==2:
-                block_type,block_name=block_info
-                selected_block=next((b for b in blocks if b[0]==block_name),None)
+    canvas.data["create_adapter_cb"] = lambda mx,my,a,b,sp,cp,old_line,color: create_adapter(canvas, mx,my,a,b,sp,cp,old_line,color)
+
+    load_previous_configuration(canvas, os.path.join(directory, "TopLevelAdapter.json"))
+
+    def start_drag(e):
+        s = blocks_listbox.curselection()
+        if s:
+            i = s[0]
+            it = blocks_listbox.get(i)
+            block_info = it.split(": ")
+            if len(block_info) == 2:
+                bt, bn = block_info
+                selected_block = next((b_ for b_ in blocks if b_[0] == bn), None)
                 if selected_block:
-                    canvas.data["drag_block"]=selected_block
-                    canvas.data["drag_label"]=tk.Label(left_frame,text=block_name,bg="lightgreen")
-                    canvas.data["drag_label"].place(x=event.x,y=event.y)
-                    blocks_listbox.bind("<Motion>",on_drag_motion)
-                    blocks_listbox.bind("<ButtonRelease-1>",on_drag_release)
-    def on_drag_motion(event):
+                    canvas.data["drag_block"] = selected_block
+                    canvas.data["drag_label"] = tk.Label(left_frame, text=bn, bg="lightgreen")
+                    canvas.data["drag_label"].place(x=e.x, y=e.y)
+                    blocks_listbox.bind("<Motion>", on_drag_motion)
+                    blocks_listbox.bind("<ButtonRelease-1>", on_drag_release)
+
+    def on_drag_motion(e):
         if "drag_label" in canvas.data:
-            canvas.data["drag_label"].place(x=event.x,y=event.y)
-    def on_drag_release(event):
+            canvas.data["drag_label"].place(x=e.x, y=e.y)
+
+    def on_drag_release(e):
         if "drag_label" in canvas.data:
             canvas.data["drag_label"].destroy()
             del canvas.data["drag_label"]
-            block=canvas.data.get("drag_block")
+            block = canvas.data.get("drag_block")
             if block:
-                canvas_x=canvas.winfo_pointerx()-canvas.winfo_rootx()-right_frame.winfo_x()
-                canvas_y=canvas.winfo_pointery()-canvas.winfo_rooty()-right_frame.winfo_y()
-                if 0<=canvas_x<=canvas.winfo_width() and 0<=canvas_y<=canvas.winfo_height():
-                    name,generics,ports=block
-                    if generics==[] and ports==[]:
-                        messagebox.showinfo("Info",f"Block '{name}' has no generics or ports.")
+                cx = canvas.winfo_pointerx() - canvas.winfo_rootx() - right_frame.winfo_x()
+                cy = canvas.winfo_pointery() - canvas.winfo_rooty() - right_frame.winfo_y()
+                if 0 <= cx <= canvas.winfo_width() and 0 <= cy <= canvas.winfo_height():
+                    name, generics, ports = block
+                    if not generics and not ports:
+                        tk.messagebox.showinfo("Info", "Block '" + name + "' has no generics or ports.")
                     else:
-                        block_instance=EntityBlock(canvas,canvas_x,canvas_y,name,generics,ports,conduit=False)
-                        canvas.data["blocks"].append(block_instance)
+                        eb = EntityBlock(canvas, cx, cy, name, generics, ports, conduit=False)
+                        canvas.data["blocks"].append(eb)
             del canvas.data["drag_block"]
             blocks_listbox.unbind("<Motion>")
             blocks_listbox.unbind("<ButtonRelease-1>")
-    blocks_listbox.bind("<Button-1>",start_drag)
-    def add_conduit(root,canvas):
-        conduit_window=tk.Toplevel(root)
-        conduit_window.title("New Conduit")
-        tk.Label(conduit_window,text="Name:").pack(pady=2)
-        name_entry=tk.Entry(conduit_window)
-        name_entry.insert(0,"sig")
-        name_entry.pack(pady=2)
-        tk.Label(conduit_window,text="Direction:").pack(pady=2)
-        direction_var=tk.StringVar(conduit_window,"in")
-        tk.OptionMenu(conduit_window,direction_var,"in","out","inout").pack(pady=2)
-        tk.Label(conduit_window,text="Bit width (leave blank for default):").pack(pady=2)
-        width_entry=tk.Entry(conduit_window)
-        width_entry.insert(0,"1")
-        width_entry.pack(pady=2)
-        tk.Label(conduit_window,text="Base Type (e.g., std_logic, integer):").pack(pady=2)
-        type_entry=tk.Entry(conduit_window)
-        type_entry.insert(0,"std_logic")
-        type_entry.pack(pady=2)
-        def create_conduit():
-            name=name_entry.get().strip()
-            direction=direction_var.get()
-            width=width_entry.get().strip()
-            base_type=type_entry.get().strip()
-            if not name:
-                messagebox.showerror("Input Error","Conduit name cannot be empty.")
-                return
-            for block in canvas.data["blocks"]:
-                if hasattr(block,'conduit') and block.conduit and block.name==name:
-                    messagebox.showerror("Duplicate Error",f"Conduit '{name}' already exists.")
-                    return
-            if width.isdigit():
-                width=int(width)
-                if width<=1:
-                    if base_type.lower() in ["std_logic_vector","signed","unsigned","std_logic"]:
-                        final_type="std_logic"
-                    else:
-                        final_type=base_type
-                else:
-                    if base_type.lower()=="std_logic":
-                        final_type=f"std_logic_vector({width-1}:0)"
-                    elif base_type.lower() in ["signed","unsigned","std_logic_vector"]:
-                        final_type=f"{base_type}({width-1}:0)"
-                    else:
-                        final_type=base_type
-            else:
-                final_type=base_type
-            conduit=EntityBlock(canvas,100,100,name,[],[{"name":name,"dir":direction,"type":final_type}],conduit=True)
-            canvas.data["blocks"].append(conduit)
-            conduit_window.destroy()
-        tk.Button(conduit_window,text="Create",command=create_conduit).pack(pady=10)
+
+    blocks_listbox.bind("<Button-1>", start_drag)
     root.mainloop()
