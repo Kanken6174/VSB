@@ -144,6 +144,13 @@ def load_previous_configuration(canvas, path):
     for w in canvas.find_withtag("wire"):
         canvas.tag_bind(w, "<Button-3>", lambda e: wire_right_click(e, canvas))
 
+def flip_direction(d):
+    if d == "in":
+        return "out"
+    if d == "out":
+        return "in"
+    return d
+
 def run_gui(directory):
     blocks = find_blocks(directory)
     root = tk.Tk()
@@ -202,7 +209,7 @@ def run_gui(directory):
                         final_type = f"std_logic_vector({wd - 1}:0)"
                     elif bt.lower() in ["signed", "unsigned", "std_logic_vector"]:
                         final_type = f"{bt}({wd - 1}:0)"
-            e = EntityBlock(cvs, 100, 100, nm, [], [{"name": nm, "dir": dr, "type": final_type}], True)
+            e = EntityBlock(cvs, 100, 100, nm, [], [{"name": nm, "dir":flip_direction(dr), "type": final_type}], True)
             cvs.data["blocks"].append(e)
             w.destroy()
         tk.Button(w, text="Create", command=ok).pack()

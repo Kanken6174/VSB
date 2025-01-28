@@ -45,9 +45,9 @@ class EntityBlock(DraggableBlock):
         for p in ports:
             if conduit:
                 if p["dir"] == "in":
-                    fd = "out"
-                elif p["dir"] == "out":
                     fd = "in"
+                elif p["dir"] == "out":
+                    fd = "out"
                 else:
                     fd = "inout"
                 pf = {"name":p["name"], "dir":fd, "type":p["type"]}
