@@ -1,4 +1,4 @@
-#gui.py
+# gui.py
 import tkinter as tk
 import os
 import json
@@ -15,11 +15,11 @@ def create_adapter(canvas, mx, my, atypeA, atypeB, source_port, target_port, old
     adapter.left_port.port["type"] = atypeA["type"]
     adapter.right_port.port["type"] = atypeB["type"]
     line1 = canvas.create_line(source_port.x, source_port.y, adapter.left_port.x, adapter.left_port.y,
-        fill = source_port.color if source_port.color else "black", tags=("wire",),
+        fill=source_port.color if source_port.color else "black", tags=("wire",),
         smooth=True, splinesteps=36, width=3)
     canvas.data["connections"].append((source_port, adapter.left_port, line1, adapter))
     line2 = canvas.create_line(adapter.right_port.x, adapter.right_port.y, target_port.x, target_port.y,
-        fill = source_port.color if source_port.color else "black", tags=("wire",),
+        fill=source_port.color if source_port.color else "black", tags=("wire",),
         smooth=True, splinesteps=36, width=3)
     canvas.data["connections"].append((adapter.right_port, target_port, line2, adapter))
     canvas.tag_bind("wire", "<Button-3>", lambda e: wire_right_click(e, canvas))
@@ -46,6 +46,7 @@ def load_previous_configuration(canvas, path):
     bdata = data.get("blocks", [])
     cdata = data.get("connections", [])
     nb = []
+    port_color_map = {}
     for bd in bdata:
         t = bd["type"]
         n = bd["name"]
@@ -83,7 +84,7 @@ def load_previous_configuration(canvas, path):
                     "dir":  p_["port_dir"],
                     "type": p_["port_type"]
                 })
-            e = EntityBlock(canvas, x, y, n, g, ep, bd.get("conduit",False))
+            e = EntityBlock(canvas, x, y, n, g, ep, bd.get("conduit", False))
             e.name = n
             e.x = x
             e.y = y
@@ -120,16 +121,33 @@ def load_previous_configuration(canvas, path):
         b2 = c_["block2"]
         p1 = c_["port1"]
         p2 = c_["port2"]
+        color = c_.get("color", "black")
         if (b1, p1) in pm and (b2, p2) in pm:
             pp1 = pm[(b1, p1)]
             pp2 = pm[(b2, p2)]
-            cl = pp1.color if pp1.color else "black"
+            if pp1.is_conduit:
+                port_color_map[pp1] = color
+            if pp2.is_conduit:
+                port_color_map[pp2] = color
+    for port, color in port_color_map.items():
+        port.color = color
+        if port.is_conduit:
+            canvas.itemconfig(port.id, outline=color)
+    for c_ in cdata:
+        b1 = c_["block1"]
+        b2 = c_["block2"]
+        p1 = c_["port1"]
+        p2 = c_["port2"]
+        cl = c_.get("color", "black")
+        if (b1, p1) in pm and (b2, p2) in pm:
+            pp1 = pm[(b1, p1)]
+            pp2 = pm[(b2, p2)]
             ln = canvas.create_line(pp1.x, pp1.y, pp2.x, pp2.y, fill=cl, tags=("wire",),
                                     smooth=True, splinesteps=36, width=3)
             canvas.data["connections"].append((pp1, pp2, ln, None))
-            cx1 = pp1.x + (pp2.x - pp1.x)/2
+            cx1 = pp1.x + (pp2.x - pp1.x) / 2
             cy1 = pp1.y
-            cx2 = pp1.x + (pp2.x - pp1.x)/2
+            cx2 = pp1.x + (pp2.x - pp1.x) / 2
             cy2 = pp2.y
             canvas.coords(ln, pp1.x, pp1.y, cx1, cy1, cx2, cy2, pp2.x, pp2.y)
     for w in canvas.find_withtag("wire"):
@@ -190,10 +208,10 @@ def run_gui(directory):
                         final_type = "std_logic"
                 else:
                     if bt.lower() == "std_logic":
-                        final_type = "std_logic_vector(" + str(wd - 1) + ":0)"
+                        final_type = f"std_logic_vector({wd - 1}:0)"
                     elif bt.lower() in ["signed", "unsigned", "std_logic_vector"]:
-                        final_type = bt + "(" + str(wd - 1) + ":0)"
-            e = EntityBlock(cvs, 100, 100, nm, [], [{"name":nm, "dir":dr, "type":final_type}], True)
+                        final_type = f"{bt}({wd - 1}:0)"
+            e = EntityBlock(cvs, 100, 100, nm, [], [{"name": nm, "dir": dr, "type": final_type}], True)
             cvs.data["blocks"].append(e)
             w.destroy()
         tk.Button(w, text="Create", command=ok).pack()
@@ -252,7 +270,7 @@ def run_gui(directory):
                 if 0 <= cx <= canvas.winfo_width() and 0 <= cy <= canvas.winfo_height():
                     name, generics, ports = block
                     if not generics and not ports:
-                        tk.messagebox.showinfo("Info", "Block '" + name + "' has no generics or ports.")
+                        tk.messagebox.showinfo("Info", f"Block '{name}' has no generics or ports.")
                     else:
                         eb = EntityBlock(canvas, cx, cy, name, generics, ports, conduit=False)
                         canvas.data["blocks"].append(eb)

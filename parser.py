@@ -1,4 +1,4 @@
-#parser.py
+# parser.py
 import os
 import re
 
@@ -98,24 +98,24 @@ def find_blocks(d):
            not lf.endswith("topleveladapter.vhd"):
             fp = os.path.join(d, fn)
             pe, pc = scan_file(fp)
-            for name,g,p in pe:
+            for name, g, p in pe:
                 if name in bd:
                     eg = bd[name][1]
                     ep = bd[name][2]
                     for gg in g:
-                        if not any(x['name']==gg['name'] for x in eg):
+                        if not any(x['name'] == gg['name'] for x in eg):
                             eg.append(gg)
                     for pp in p:
-                        if not any(x['name']==pp['name'] for x in ep):
+                        if not any(x['name'] == pp['name'] for x in ep):
                             ep.append(pp)
                 else:
                     bd[name] = (name, g.copy(), p.copy())
-            for name,g,p in pc:
+            for name, g, p in pc:
                 if name in bd:
                     eg = bd[name][1]
                     ep = bd[name][2]
                     for pp in p:
-                        if not any(x['name']==pp['name'] for x in ep):
+                        if not any(x['name'] == pp['name'] for x in ep):
                             ep.append(pp)
                 else:
                     bd[name] = (name, g.copy(), p.copy())
@@ -130,24 +130,24 @@ def find_blocks(d):
                    not lfl.endswith("_tb.vhdl"):
                     fp = os.path.join(root, fl)
                     pe, pc = scan_file(fp)
-                    for name,g,p in pe:
+                    for name, g, p in pe:
                         if name in bd:
                             eg = bd[name][1]
                             ep = bd[name][2]
                             for gg in g:
-                                if not any(x['name']==gg['name'] for x in eg):
+                                if not any(x['name'] == gg['name'] for x in eg):
                                     eg.append(gg)
                             for pp in p:
-                                if not any(x['name']==pp['name'] for x in ep):
+                                if not any(x['name'] == pp['name'] for x in ep):
                                     ep.append(pp)
                         else:
                             bd[name] = (name, g.copy(), p.copy())
-                    for name,g,p in pc:
+                    for name, g, p in pc:
                         if name in bd:
                             eg = bd[name][1]
                             ep = bd[name][2]
                             for pp in p:
-                                if not any(x['name']==pp['name'] for x in ep):
+                                if not any(x['name'] == pp['name'] for x in ep):
                                     ep.append(pp)
                         else:
                             bd[name] = (name, g.copy(), p.copy())

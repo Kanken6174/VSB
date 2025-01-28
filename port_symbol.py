@@ -1,4 +1,4 @@
-#port_symbol.py
+# port_symbol.py
 import tkinter as tk
 from utils import check_dir, types_compatible, extract_kind, extract_width
 from color_manager import ColorManager
