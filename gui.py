@@ -73,6 +73,10 @@ def load_previous_configuration(canvas, path):
             canvas.move(a.left_port.label_id, dx, dy)
             canvas.move(a.right_port.id, dx, dy)
             canvas.move(a.right_port.label_id, dx, dy)
+            if "color" in bd.get("ports", [{}])[0]:
+                a.left_port.color = bd["ports"][0].get("color")
+                if a.left_port.color:
+                    a.right_port.color = a.left_port.color
             nb.append(a)
         else:
             g = bd.get("generics", [])
@@ -102,11 +106,16 @@ def load_previous_configuration(canvas, path):
                 pdy = py - pps.y
                 pps.x = px
                 pps.y = py
-                canvas.move(pps.id, pdx, pdy)
-                canvas.move(pps.label_id, pdx, pdy)
+                canvas.move(pps.id, pdx, dy)
+                canvas.move(pps.label_id, pdx, dy)
                 pps.is_conduit = ps[i]["is_conduit"]
                 if pps.is_conduit:
                     canvas.itemconfig(pps.id, outline="red")
+                # Set port color from JSON
+                if pps.port["dir"] in ["out", "inout"]:
+                    pps.color = ps[i].get("color")
+                    if pps.color:
+                        canvas.itemconfig(pps.id, fill=pps.color, outline=pps.color)
             nb.append(e)
     canvas.data["blocks"].extend(nb)
     nm = {}
@@ -121,28 +130,10 @@ def load_previous_configuration(canvas, path):
         b2 = c_["block2"]
         p1 = c_["port1"]
         p2 = c_["port2"]
-        color = c_.get("color", "black")
         if (b1, p1) in pm and (b2, p2) in pm:
             pp1 = pm[(b1, p1)]
             pp2 = pm[(b2, p2)]
-            if pp1.is_conduit:
-                port_color_map[pp1] = color
-            if pp2.is_conduit:
-                port_color_map[pp2] = color
-    for port, color in port_color_map.items():
-        port.color = color
-        if port.is_conduit:
-            canvas.itemconfig(port.id, outline=color)
-    for c_ in cdata:
-        b1 = c_["block1"]
-        b2 = c_["block2"]
-        p1 = c_["port1"]
-        p2 = c_["port2"]
-        cl = c_.get("color", "black")
-        if (b1, p1) in pm and (b2, p2) in pm:
-            pp1 = pm[(b1, p1)]
-            pp2 = pm[(b2, p2)]
-            ln = canvas.create_line(pp1.x, pp1.y, pp2.x, pp2.y, fill=cl, tags=("wire",),
+            ln = canvas.create_line(pp1.x, pp1.y, pp2.x, pp2.y, fill=pp1.color if pp1.color else "black", tags=("wire",),
                                     smooth=True, splinesteps=36, width=3)
             canvas.data["connections"].append((pp1, pp2, ln, None))
             cx1 = pp1.x + (pp2.x - pp1.x) / 2

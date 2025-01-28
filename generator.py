@@ -172,7 +172,7 @@ use ieee.numeric_std.all;
             f.write(f"    {iname} : {adp.name} port map(\n")
             lines_map = []
             for ps_ in adp.port_symbols:
-                pn = ps_.port["name"]
+                pn = ps_.port['name']
                 if ps_ in sn:
                     lines_map.append(f"        {pn} => {sn[ps_]}")
                 else:
@@ -212,7 +212,7 @@ use ieee.numeric_std.all;
                     f.write(f"    {iname} : {blk.name} port map(\n")
                 lines_map = []
                 for ps_ in blk.port_symbols:
-                    pn = ps_.port["name"]
+                    pn = ps_.port['name']
                     if ps_ in sn:
                         lines_map.append(f"        {pn} => {sn[ps_]}")
                     else:
@@ -249,6 +249,8 @@ use ieee.numeric_std.all;
             p_js["x"] = ps_.x
             p_js["y"] = ps_.y
             p_js["is_conduit"] = getattr(ps_, "is_conduit", False)
+            if ps_.port["dir"] in ["out", "inout"]:
+                p_js["color"] = ps_.color if ps_.color else None
             ports_arr.append(p_js)
         bd["ports"] = ports_arr
         out_json["blocks"].append(bd)
@@ -256,13 +258,11 @@ use ieee.numeric_std.all;
     out_json["connections"] = []
     for c_ in c:
         p1, p2, _, _ = c_
-        cl = p1.color if p1.color else "black"
         out_json["connections"].append({
             "block1": p1.block.name,
             "block2": p2.block.name,
             "port1": p1.port["name"],
-            "port2": p2.port["name"],
-            "color": cl
+            "port2": p2.port["name"]
         })
     with open(os.path.join(r, "TopLevelAdapter.json"), "w") as jf:
         json.dump(out_json, jf, indent=2)
