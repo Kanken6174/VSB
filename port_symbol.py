@@ -1,3 +1,4 @@
+#port_symbol.py
 import tkinter as tk
 from utils import check_dir, types_compatible, extract_kind, extract_width
 from color_manager import ColorManager
@@ -67,7 +68,8 @@ class PortSymbol:
     def on_drag(self, event):
         if self.dragging and self.canvas.data["active_line"]:
             stx, sty = self.x, self.y
-            ex, ey = event.x, event.y
+            ex = self.canvas.canvasx(event.x)
+            ey = self.canvas.canvasy(event.y)
             cx1 = stx + (ex - stx) / 2
             cy1 = sty
             cx2 = stx + (ex - stx) / 2
@@ -86,7 +88,11 @@ class PortSymbol:
         source_port = self.canvas.data["active_port"]
         success = False
 
-        overlapping = self.canvas.find_overlapping(event.x, event.y, event.x, event.y)
+        ex = self.canvas.canvasx(event.x)
+        ey = self.canvas.canvasy(event.y)
+
+        # Increase the overlapping area to ensure port is detected after panning
+        overlapping = self.canvas.find_overlapping(ex-5, ey-5, ex+5, ey+5)
         for obj_id in overlapping:
             if obj_id != self.id and obj_id in self.canvas.data["port_map"]:
                 target_port = self.canvas.data["port_map"][obj_id]

@@ -1,3 +1,4 @@
+#adapter_block.py
 import tkinter as tk
 from base_block import DraggableBlock
 from port_symbol import PortSymbol

@@ -1,3 +1,4 @@
+#gui.py
 import tkinter as tk
 import os
 import json
@@ -9,7 +10,7 @@ from generator import generate_top_level
 def create_adapter(canvas, mx, my, atypeA, atypeB, source_port, target_port, old_line, inherited_color):
     if old_line:
         canvas.delete(old_line)
-    adapter = AdapterBlock(canvas, mx, my, atypeA, atypeB, "Convert", inherited_color)
+    adapter = AdapterBlock(canvas, mx, my, metaA=atypeA, metaB=atypeB, mode="Convert", inherited_color=inherited_color)
     canvas.data["blocks"].append(adapter)
     adapter.left_port.port["type"] = atypeA["type"]
     adapter.right_port.port["type"] = atypeB["type"]
@@ -51,7 +52,7 @@ def load_previous_configuration(canvas, path):
         x = bd["x"]
         y = bd["y"]
         if t == "adapter":
-            a = AdapterBlock(canvas, x, y, {"kind":"SLV","width":1}, {"kind":"SLV","width":1}, "Convert")
+            a = AdapterBlock(canvas, x, y, metaA={"kind":"SLV","width":1}, metaB={"kind":"SLV","width":1}, mode="Convert")
             a.name = n
             canvas.itemconfig(a.text, text=n)
             a.x = x
@@ -93,7 +94,7 @@ def load_previous_configuration(canvas, path):
             dy = y - co[1]
             canvas.move(e.obj, dx, dy)
             canvas.move(e.text, dx, dy)
-            for i,pps in enumerate(e.port_symbols):
+            for i, pps in enumerate(e.port_symbols):
                 px = ps[i]["x"]
                 py = ps[i]["y"]
                 pdx = px - pps.x
@@ -216,7 +217,7 @@ def run_gui(directory):
         "active_port": None,
         "project_root": directory
     }
-    canvas.data["create_adapter_cb"] = lambda mx,my,a,b,sp,cp,old_line,color: create_adapter(canvas, mx,my,a,b,sp,cp,old_line,color)
+    canvas.data["create_adapter_cb"] = lambda mx, my, a, b, sp, cp, old_line, color: create_adapter(canvas, mx, my, a, b, sp, cp, old_line, color)
 
     load_previous_configuration(canvas, os.path.join(directory, "TopLevelAdapter.json"))
 
@@ -246,8 +247,8 @@ def run_gui(directory):
             del canvas.data["drag_label"]
             block = canvas.data.get("drag_block")
             if block:
-                cx = canvas.winfo_pointerx() - canvas.winfo_rootx() - right_frame.winfo_x()
-                cy = canvas.winfo_pointery() - canvas.winfo_rooty() - right_frame.winfo_y()
+                cx = canvas.canvasx(e.x)
+                cy = canvas.canvasy(e.y)
                 if 0 <= cx <= canvas.winfo_width() and 0 <= cy <= canvas.winfo_height():
                     name, generics, ports = block
                     if not generics and not ports:
@@ -260,4 +261,14 @@ def run_gui(directory):
             blocks_listbox.unbind("<ButtonRelease-1>")
 
     blocks_listbox.bind("<Button-1>", start_drag)
+
+    def on_pan_start(event):
+        canvas.scan_mark(event.x, event.y)
+
+    def on_pan_move(event):
+        canvas.scan_dragto(event.x, event.y, gain=1)
+
+    canvas.bind("<ButtonPress-2>", on_pan_start)
+    canvas.bind("<B2-Motion>", on_pan_move)
+
     root.mainloop()
