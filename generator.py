@@ -4,6 +4,7 @@ import re
 import json
 from collections import defaultdict
 from entity_block import EntityBlock
+from utils import extract_width
 
 def flip_direction(d):
     if d == "in":
@@ -43,10 +44,10 @@ def generate_top_level(canvas):
             if getattr(y, "is_conduit", False):
                 cp.append(y)
 
-    tin = [pt for xx in cb for pt in xx.port_symbols if pt.port["dir"] in ["in","inout"]]
-    tout = [pt for xx in cb for pt in xx.port_symbols if pt.port["dir"] in ["out","inout"]]
-    tin += [pt for pt in cp if pt.port["dir"] in ["in","inout"]]
-    tout += [pt for pt in cp if pt.port["dir"] in ["out","inout"]]
+    tin = [pt for xx in cb for pt in xx.port_symbols if pt.port["dir"] in ["in", "inout"]]
+    tout = [pt for xx in cb for pt in xx.port_symbols if pt.port["dir"] in ["out", "inout"]]
+    tin += [pt for pt in cp if pt.port["dir"] in ["in", "inout"]]
+    tout += [pt for pt in cp if pt.port["dir"] in ["out", "inout"]]
 
     parent = {}
     for x_ in b:
@@ -106,7 +107,6 @@ def generate_top_level(canvas):
         f.write("library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\n")
         f.write("entity Main is\n")
         f.write("    port(\n")
-        # collect unique top-level ports by name
         unique_ports = {}
         all_conduits = [pt for xx in cb for pt in xx.port_symbols if getattr(xx, 'conduit', False)] + cp
         for pt in all_conduits:
@@ -117,10 +117,18 @@ def generate_top_level(canvas):
                 else:
                     od = pt.port["dir"]
                 unique_ports[pname] = (pname, od, pt.port["type"])
-
+    
+        def normalize_type(ptype):
+            if "std_logic_vector" in ptype.lower():
+                w = extract_width(ptype)
+                if w == 1:
+                    return "std_logic"
+            return ptype
+    
         up_keys = list(unique_ports.keys())
         for i, key in enumerate(up_keys):
             pname, odir, ptype = unique_ports[key]
+            ptype = normalize_type(ptype)
             line = f"        {pname} : {odir} {ptype}"
             if i < len(up_keys) - 1:
                 line += ";"
@@ -132,7 +140,7 @@ def generate_top_level(canvas):
             for sg in internal_signals:
                 match_ps = [pp for (pp, nm) in sn.items() if nm == sg]
                 if match_ps:
-                    vtype = match_ps[0].port["type"]
+                    vtype = normalize_type(match_ps[0].port["type"])
                     f.write(f"    signal {sg} : {vtype};\n")
             f.write("\n")
         comp_ports = defaultdict(list)
@@ -163,7 +171,7 @@ def generate_top_level(canvas):
                     line += ";"
                 f.write(line + "\n")
             f.write("        );\n")
-            f.write("    end component;\n\n")
+            f.write(f"    end component;\n\n")
         f.write("begin\n\n")
         instance_count = defaultdict(int)
         for blk in b:
@@ -188,14 +196,23 @@ def generate_top_level(canvas):
             lines_map = []
             for ps_ in blk.port_symbols:
                 pn = ps_.port['name']
+                if "std_logic_vector" in ps_.port["type"].lower():
+                    w = extract_width(ps_.port["type"])
+                    if w == 1:
+                        comp_port_name = f"{pn}(0)"
+                    else:
+                        comp_port_name = pn
+                else:
+                    comp_port_name = pn
+
                 if ps_ in sn:
-                    lines_map.append(f"        {pn} => {sn[ps_]}")
+                    lines_map.append(f"        {comp_port_name} => {sn[ps_]}")
                 else:
                     if ps_.port["dir"] in ["in", "inout"]:
                         df = get_default_assignment(ps_.port["type"])
-                        lines_map.append(f"        {pn} => {df}")
+                        lines_map.append(f"        {comp_port_name} => {df}")
                     else:
-                        lines_map.append(f"        {pn} => open")
+                        lines_map.append(f"        {comp_port_name} => open")
             f.write(",\n".join(lines_map))
             f.write("\n    );\n\n")
         f.write("end Behavioral;\n")
