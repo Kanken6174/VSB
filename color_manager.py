@@ -1,4 +1,4 @@
-# color_manager.py
+#color_manager.py
 class ColorManager:
     def __init__(self):
         self.colors = [

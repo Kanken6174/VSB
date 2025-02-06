@@ -1,4 +1,4 @@
-# gui.py
+#gui.py
 import tkinter as tk
 import os
 import json
