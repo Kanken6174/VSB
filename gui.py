@@ -4,25 +4,7 @@ import os
 import json
 from parser import find_blocks
 from entity_block import EntityBlock
-from adapter_block import AdapterBlock
 from generator import generate_top_level
-
-def create_adapter(canvas, mx, my, atypeA, atypeB, source_port, target_port, old_line, inherited_color):
-    if old_line:
-        canvas.delete(old_line)
-    adapter = AdapterBlock(canvas, mx, my, metaA=atypeA, metaB=atypeB, mode="Convert", inherited_color=inherited_color)
-    canvas.data["blocks"].append(adapter)
-    adapter.left_port.port["type"] = atypeA["type"]
-    adapter.right_port.port["type"] = atypeB["type"]
-    line1 = canvas.create_line(source_port.x, source_port.y, adapter.left_port.x, adapter.left_port.y,
-        fill=source_port.color if source_port.color else "black", tags=("wire",),
-        smooth=True, splinesteps=36, width=3)
-    canvas.data["connections"].append((source_port, adapter.left_port, line1, adapter))
-    line2 = canvas.create_line(adapter.right_port.x, adapter.right_port.y, target_port.x, target_port.y,
-        fill=source_port.color if source_port.color else "black", tags=("wire",),
-        smooth=True, splinesteps=36, width=3)
-    canvas.data["connections"].append((adapter.right_port, target_port, line2, adapter))
-    canvas.tag_bind("wire", "<Button-3>", lambda e: wire_right_click(e, canvas))
 
 def wire_right_click(e, canvas):
     w = canvas.find_closest(e.x, e.y)[0]
@@ -46,39 +28,14 @@ def load_previous_configuration(canvas, path):
     bdata = data.get("blocks", [])
     cdata = data.get("connections", [])
     nb = []
-    port_color_map = {}
     for bd in bdata:
         t = bd["type"]
+        if t == "adapter":
+            continue
         n = bd["name"]
         x = bd["x"]
         y = bd["y"]
-        if t == "adapter":
-            a = AdapterBlock(canvas, x, y, metaA={"kind":"SLV","width":1}, metaB={"kind":"SLV","width":1}, mode="Convert")
-            a.name = n
-            canvas.itemconfig(a.text, text=n)
-            a.x = x
-            a.y = y
-            co = canvas.coords(a.obj)
-            cx = (co[0] + co[4]) / 2
-            cy = (co[1] + co[5]) / 2
-            dx = x - cx
-            dy = y - cy
-            canvas.move(a.obj, dx, dy)
-            canvas.move(a.text, dx, dy)
-            a.left_port.x = x - 30
-            a.left_port.y = y
-            a.right_port.x = x + 30
-            a.right_port.y = y
-            canvas.move(a.left_port.id, dx, dy)
-            canvas.move(a.left_port.label_id, dx, dy)
-            canvas.move(a.right_port.id, dx, dy)
-            canvas.move(a.right_port.label_id, dx, dy)
-            if "color" in bd.get("ports", [{}])[0]:
-                a.left_port.color = bd["ports"][0].get("color")
-                if a.left_port.color:
-                    a.right_port.color = a.left_port.color
-            nb.append(a)
-        else:
+        if t == "entity":
             g = bd.get("generics", [])
             ps = bd.get("ports", [])
             ep = []
@@ -106,21 +63,18 @@ def load_previous_configuration(canvas, path):
                 pdy = py - pps.y
                 pps.x = px
                 pps.y = py
-                canvas.move(pps.id, pdx, dy)
-                canvas.move(pps.label_id, pdx, dy)
+                canvas.move(pps.id, pdx, pdy)
+                canvas.move(pps.label_id, pdx, pdy)
                 pps.is_conduit = ps[i]["is_conduit"]
                 if pps.is_conduit:
-                    canvas.itemconfig(pps.id, outline="red")
-                # Set port color from JSON
-                if pps.port["dir"] in ["out", "inout"]:
-                    pps.color = ps[i].get("color")
-                    if pps.color:
-                        canvas.itemconfig(pps.id, fill=pps.color, outline=pps.color)
+                    canvas.itemconfig(pps.id, fill="black", outline="red")
+                else:
+                    if pps.port["dir"] in ["out", "inout"]:
+                        pps.color = ps[i].get("color")
+                        if pps.color:
+                            canvas.itemconfig(pps.id, fill=pps.color, outline=pps.color)
             nb.append(e)
     canvas.data["blocks"].extend(nb)
-    nm = {}
-    for x in nb:
-        nm[x.name] = x
     pm = {}
     for x in nb:
         for ps in x.port_symbols:
@@ -133,8 +87,12 @@ def load_previous_configuration(canvas, path):
         if (b1, p1) in pm and (b2, p2) in pm:
             pp1 = pm[(b1, p1)]
             pp2 = pm[(b2, p2)]
-            ln = canvas.create_line(pp1.x, pp1.y, pp2.x, pp2.y, fill=pp1.color if pp1.color else "black", tags=("wire",),
-                                    smooth=True, splinesteps=36, width=3)
+            ln = canvas.create_line(
+                pp1.x, pp1.y, pp2.x, pp2.y,
+                fill=pp1.color if pp1.color else "black",
+                tags=("wire",),
+                smooth=True, splinesteps=36, width=3
+            )
             canvas.data["connections"].append((pp1, pp2, ln, None))
             cx1 = pp1.x + (pp2.x - pp1.x) / 2
             cy1 = pp1.y
@@ -157,15 +115,13 @@ def run_gui(directory):
     root.title("Efinix System Builder")
     left_frame = tk.Frame(root)
     left_frame.pack(side="left", fill="y", padx=5, pady=5)
-
     tk.Label(left_frame, text="Available Blocks").pack()
     blocks_listbox = tk.Listbox(left_frame)
     blocks_listbox.pack(fill="both", expand=True)
     for b in blocks:
         nm, gen, pts = b
         blocks_listbox.insert("end",
-            ("Empty Block: " if not gen and not pts else "Entity/Component: ")
-            + nm
+            ("Empty Block: " if not gen and not pts else "Entity/Component: ") + nm
         )
 
     def add_conduit(root_window, cvs):
@@ -209,22 +165,19 @@ def run_gui(directory):
                         final_type = f"std_logic_vector({wd - 1}:0)"
                     elif bt.lower() in ["signed", "unsigned", "std_logic_vector"]:
                         final_type = f"{bt}({wd - 1}:0)"
-            e = EntityBlock(cvs, 100, 100, nm, [], [{"name": nm, "dir":flip_direction(dr), "type": final_type}], True)
+            e = EntityBlock(cvs, 100, 100, nm, [], [{"name": nm, "dir": flip_direction(dr), "type": final_type}], True)
             cvs.data["blocks"].append(e)
             w.destroy()
         tk.Button(w, text="Create", command=ok).pack()
 
     add_conduit_button = tk.Button(left_frame, text="New Conduit", command=lambda: add_conduit(root, canvas))
     add_conduit_button.pack(pady=5, fill="x")
-
     generate_button = tk.Button(left_frame, text="Generate TopLevel", command=lambda: generate_top_level(canvas))
     generate_button.pack(pady=5, fill="x")
-
     right_frame = tk.Frame(root)
     right_frame.pack(side="right", expand=True, fill="both")
     canvas = tk.Canvas(right_frame, bg="white")
     canvas.pack(expand=True, fill="both")
-
     canvas.data = {
         "connections": [],
         "blocks": [],
@@ -233,8 +186,6 @@ def run_gui(directory):
         "active_port": None,
         "project_root": directory
     }
-    canvas.data["create_adapter_cb"] = lambda mx, my, a, b, sp, cp, old_line, color: create_adapter(canvas, mx, my, a, b, sp, cp, old_line, color)
-
     load_previous_configuration(canvas, os.path.join(directory, "Main.json"))
 
     def start_drag(e):
@@ -286,5 +237,4 @@ def run_gui(directory):
 
     canvas.bind("<ButtonPress-2>", on_pan_start)
     canvas.bind("<B2-Motion>", on_pan_move)
-
     root.mainloop()

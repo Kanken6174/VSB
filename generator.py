@@ -3,7 +3,6 @@ import os
 import re
 import json
 from collections import defaultdict
-from adapter_block import AdapterBlock
 from entity_block import EntityBlock
 
 def flip_direction(d):
@@ -35,45 +34,37 @@ def generate_top_level(canvas):
     p = os.path.join(r, "Main.vhd")
     b = canvas.data["blocks"]
     c = canvas.data["connections"]
-    cb = [x for x in b if (isinstance(x, AdapterBlock) or isinstance(x, EntityBlock)) and getattr(x, 'conduit', False)]
+    cb = [x for x in b if getattr(x, 'conduit', False)]
     cp = []
     for x in b:
-        if isinstance(x, EntityBlock) or isinstance(x, AdapterBlock):
-            for y in x.port_symbols:
-                if hasattr(y, "is_conduit") and y.is_conduit:
-                    cp.append(y)
-
+        for y in x.port_symbols:
+            if hasattr(y, "is_conduit") and y.is_conduit:
+                cp.append(y)
     tin = [pt for xx in cb for pt in xx.port_symbols if pt.port["dir"] in ["in", "inout"]]
     tout = [pt for xx in cb for pt in xx.port_symbols if pt.port["dir"] in ["out", "inout"]]
     tin += [pt for pt in cp if pt.port["dir"] in ["in", "inout"]]
     tout += [pt for pt in cp if pt.port["dir"] in ["out", "inout"]]
-
     parent = {}
     for x in b:
         for y in x.port_symbols:
             parent[y] = y
-
     def fnd(p):
         if parent[p] != p:
             parent[p] = fnd(parent[p])
         return parent[p]
-
     def un(p, q):
         rp = fnd(p)
         rq = fnd(q)
         if rp != rq:
             parent[rq] = rp
-
     for x_ in c:
         p1, p2, l, a = x_
         un(p1, p2)
-
     groups = defaultdict(list)
     for x_ in b:
         for y_ in x_.port_symbols:
             root = fnd(y_)
             groups[root].append(y_)
-
     sn = {}
     sc = 1
     for v_ in groups.values():
@@ -97,11 +88,9 @@ def generate_top_level(canvas):
             sc += 1
             for x_ in v_:
                 sn[x_] = s
-
     top_level_signal_names = set(pt.port["name"] for xx in cb for pt in xx.port_symbols)
     top_level_signal_names.update(pt.port["name"] for pt in cp)
     internal_signals = set(sn.values()) - top_level_signal_names
-
     with open(p, "w") as f:
         f.write("""library ieee;
 use ieee.std_logic_1164.all;
@@ -130,7 +119,6 @@ use ieee.numeric_std.all;
                     vtype = match_ps[0].port["type"]
                     f.write(f"    signal {sg} : {vtype};\n")
             f.write("\n")
-
         comp_ports = defaultdict(list)
         comp_gens = defaultdict(list)
         for x_ in b:
@@ -140,9 +128,6 @@ use ieee.numeric_std.all;
                 comp_ports[x_.name].extend(p_.port for p_ in x_.port_symbols)
                 if x_.generics:
                     comp_gens[x_.name].extend(x_.generics)
-            elif isinstance(x_, AdapterBlock):
-                comp_ports[x_.name].extend(p_.port for p_ in x_.port_symbols)
-
         for comp, prts in comp_ports.items():
             f.write(f"    component {comp} is\n")
             if comp_gens[comp]:
@@ -162,16 +147,34 @@ use ieee.numeric_std.all;
                     line += ";"
                 f.write(line + "\n")
             f.write("        );\n")
-            f.write("    end component;\n\n")
-
+            f.write(f"    end component;\n\n")
         f.write("begin\n\n")
-
-        adapter_instances = [x_ for x_ in b if isinstance(x_, AdapterBlock)]
-        for adp in adapter_instances:
-            iname = f"{adp.name}_inst"
-            f.write(f"    {iname} : {adp.name} port map(\n")
+        from collections import defaultdict
+        instance_count = defaultdict(int)
+        for blk in b:
+            if getattr(blk, "conduit", False):
+                continue
+            instance_count[blk.name] += 1
+            idx = instance_count[blk.name] - 1
+            if instance_count[blk.name] > 1:
+                iname = f"{blk.name}_inst{idx}"
+            else:
+                iname = f"{blk.name}_inst"
+            if blk.generics:
+                f.write(f"    {iname} : {blk.name} generic map(\n")
+                gm = []
+                for g_ in blk.generics:
+                    gn = g_["name"]
+                    gv = blk.generic_values.get(gn, g_.get("default"))
+                    if isinstance(gv, str) and not (gv.startswith("'") or gv.startswith('"')):
+                        gv = f'"{gv}"'
+                    gm.append(f"        {gn} => {gv}")
+                f.write(",\n".join(gm))
+                f.write("\n    ) port map(\n")
+            else:
+                f.write(f"    {iname} : {blk.name} port map(\n")
             lines_map = []
-            for ps_ in adp.port_symbols:
+            for ps_ in blk.port_symbols:
                 pn = ps_.port['name']
                 if ps_ in sn:
                     lines_map.append(f"        {pn} => {sn[ps_]}")
@@ -183,55 +186,14 @@ use ieee.numeric_std.all;
                         lines_map.append(f"        {pn} => open")
             f.write(",\n".join(lines_map))
             f.write("\n    );\n\n")
-
-        instance_count = defaultdict(int)
-        for blk in b:
-            if getattr(blk, "conduit", False):
-                continue
-            if isinstance(blk, AdapterBlock):
-                continue
-            if isinstance(blk, EntityBlock):
-                instance_count[blk.name] += 1
-                idx = instance_count[blk.name] - 1
-                if instance_count[blk.name] > 1:
-                    iname = f"{blk.name}_inst{idx}"
-                else:
-                    iname = f"{blk.name}_inst"
-                if blk.generics:
-                    f.write(f"    {iname} : {blk.name} generic map(\n")
-                    gm = []
-                    for g_ in blk.generics:
-                        gn = g_["name"]
-                        gv = blk.generic_values.get(gn, g_.get("default"))
-                        if isinstance(gv, str) and not (gv.startswith("'") or gv.startswith('"')):
-                            gv = f'"{gv}"'
-                        gm.append(f"        {gn} => {gv}")
-                    f.write(",\n".join(gm))
-                    f.write("\n    ) port map(\n")
-                else:
-                    f.write(f"    {iname} : {blk.name} port map(\n")
-                lines_map = []
-                for ps_ in blk.port_symbols:
-                    pn = ps_.port['name']
-                    if ps_ in sn:
-                        lines_map.append(f"        {pn} => {sn[ps_]}")
-                    else:
-                        if ps_.port["dir"] in ["in", "inout"]:
-                            df = get_default_assignment(ps_.port["type"])
-                            lines_map.append(f"        {pn} => {df}")
-                        else:
-                            lines_map.append(f"        {pn} => open")
-                f.write(",\n".join(lines_map))
-                f.write("\n    );\n\n")
-
         f.write("end Behavioral;\n")
-
-    # Also save JSON
     out_json = {}
     out_json["blocks"] = []
     for block in b:
+        if hasattr(block, "mode"):
+            continue
         bd = {}
-        bd["type"] = "adapter" if isinstance(block, AdapterBlock) else "entity"
+        bd["type"] = "entity"
         bd["name"] = block.name
         bd["x"] = block.x
         bd["y"] = block.y
@@ -254,7 +216,6 @@ use ieee.numeric_std.all;
             ports_arr.append(p_js)
         bd["ports"] = ports_arr
         out_json["blocks"].append(bd)
-
     out_json["connections"] = []
     for c_ in c:
         p1, p2, _, _ = c_
