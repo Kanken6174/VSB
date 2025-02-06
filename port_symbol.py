@@ -12,13 +12,11 @@ class PortSymbol:
         self.block = block
         self.port = port
         self.is_conduit = False
-
         k = port["type"].lower()
         self.shape = "square"
         self.r = 5
         if "std_logic" in k and "vector" not in k:
             self.shape = "circle"
-
         if self.shape == "circle":
             self.id = self.canvas.create_oval(
                 self.x - self.r, self.y - self.r,
@@ -33,7 +31,6 @@ class PortSymbol:
                 self.x + self.r, self.y + self.r,
                 fill="black", outline="black"
             )
-
         disp_label = port["name"]
         if port["dir"] in ["in", "inout"]:
             off = 15
@@ -44,7 +41,6 @@ class PortSymbol:
         self.label_id = self.canvas.create_text(
             self.x + off, self.y, text=disp_label, anchor=anch, fill="black"
         )
-
         self.canvas.tag_bind(self.id, "<ButtonPress-1>", self.on_press)
         self.canvas.tag_bind(self.id, "<B1-Motion>", self.on_drag)
         self.canvas.tag_bind(self.id, "<ButtonRelease-1>", self.on_release)
@@ -53,7 +49,6 @@ class PortSymbol:
         self.canvas.tag_bind(self.label_id, "<ButtonRelease-1>", self.on_release)
         self.canvas.tag_bind(self.id, "<Button-3>", self.on_port_right_click)
         self.canvas.tag_bind(self.label_id, "<Button-3>", self.on_port_right_click)
-
         self.dragging = False
         self.color = inherited_color if inherited_color else None
         if not self.color and self.port["dir"] in ["out", "inout"]:

@@ -2,7 +2,7 @@
 import tkinter as tk
 import os
 import json
-from parser import find_blocks
+from vhdl_parser import find_blocks, parse_peri_xml
 from entity_block import EntityBlock
 from generator import generate_top_level
 
@@ -102,15 +102,32 @@ def load_previous_configuration(canvas, path):
     for w in canvas.find_withtag("wire"):
         canvas.tag_bind(w, "<Button-3>", lambda e: wire_right_click(e, canvas))
 
-def flip_direction(d):
-    if d == "in":
-        return "out"
-    if d == "out":
-        return "in"
-    return d
+def add_board_io(canvas, input_side, output_side):
+    if "board_io_created" in canvas.data and canvas.data["board_io_created"]:
+        return
+    canvas.data["board_io_created"] = True
+    b_in_ports = []
+    for p in input_side:
+        if p["dir"] == "in":
+            b_in_ports.append({"name": p["name"], "dir": "out", "type": p["type"]})
+        else:
+            b_in_ports.append({"name": p["name"], "dir": p["dir"], "type": p["type"]})
+
+    b_out_ports = []
+    for p in output_side:
+        if p["dir"] == "out":
+            b_out_ports.append({"name": p["name"], "dir": "in", "type": p["type"]})
+        else:
+            b_out_ports.append({"name": p["name"], "dir": p["dir"], "type": p["type"]})
+
+    b_in = EntityBlock(canvas, 50, 50, "BoardInputs", [], b_in_ports, conduit=True)
+    b_out = EntityBlock(canvas, 250, 50, "BoardOutputs", [], b_out_ports, conduit=True)
+    canvas.data["blocks"].append(b_in)
+    canvas.data["blocks"].append(b_out)
 
 def run_gui(directory):
     blocks = find_blocks(directory)
+    in_signals, out_signals = parse_peri_xml(directory)
     root = tk.Tk()
     root.title("Efinix System Builder")
     left_frame = tk.Frame(root)
@@ -120,9 +137,7 @@ def run_gui(directory):
     blocks_listbox.pack(fill="both", expand=True)
     for b in blocks:
         nm, gen, pts = b
-        blocks_listbox.insert("end",
-            ("Empty Block: " if not gen and not pts else "Entity/Component: ") + nm
-        )
+        blocks_listbox.insert("end",("Empty Block: " if not gen and not pts else "Entity/Component: ")+nm)
 
     def add_conduit(root_window, cvs):
         w = tk.Toplevel(root_window)
@@ -152,7 +167,7 @@ def run_gui(directory):
                 return
             for bb in cvs.data["blocks"]:
                 if hasattr(bb, "conduit") and bb.conduit and bb.name == nm:
-                    tk.messagebox.showerror("Error", "Conduit '" + nm + "' already exists.")
+                    tk.messagebox.showerror("Error", "Conduit '"+nm+"' already exists.")
                     return
             final_type = bt
             if wd.isdigit():
@@ -162,16 +177,21 @@ def run_gui(directory):
                         final_type = "std_logic"
                 else:
                     if bt.lower() == "std_logic":
-                        final_type = f"std_logic_vector({wd - 1}:0)"
+                        final_type = f"std_logic_vector({wd - 1} downto 0)"
                     elif bt.lower() in ["signed", "unsigned", "std_logic_vector"]:
-                        final_type = f"{bt}({wd - 1}:0)"
-            e = EntityBlock(cvs, 100, 100, nm, [], [{"name": nm, "dir": flip_direction(dr), "type": final_type}], True)
+                        final_type = f"{bt}({wd - 1} downto 0)"
+            final_dir = "out" if dr=="in" else ("in" if dr=="out" else "inout")
+            e = EntityBlock(cvs, 100, 100, nm, [], [{"name": nm, "dir": final_dir,"type": final_type}], True)
             cvs.data["blocks"].append(e)
             w.destroy()
         tk.Button(w, text="Create", command=ok).pack()
 
+    load_previous_configuration_button = tk.Button(left_frame, text="Load Existing (if any)", command=lambda: load_previous_configuration(canvas, os.path.join(directory,"Main.json")))
+    load_previous_configuration_button.pack(pady=5, fill="x")
     add_conduit_button = tk.Button(left_frame, text="New Conduit", command=lambda: add_conduit(root, canvas))
     add_conduit_button.pack(pady=5, fill="x")
+    add_board_io_button = tk.Button(left_frame, text="Add Board IO", command=lambda: add_board_io(canvas, in_signals, out_signals))
+    add_board_io_button.pack(pady=5, fill="x")
     generate_button = tk.Button(left_frame, text="Generate TopLevel", command=lambda: generate_top_level(canvas))
     generate_button.pack(pady=5, fill="x")
     right_frame = tk.Frame(root)
@@ -186,7 +206,6 @@ def run_gui(directory):
         "active_port": None,
         "project_root": directory
     }
-    load_previous_configuration(canvas, os.path.join(directory, "Main.json"))
 
     def start_drag(e):
         s = blocks_listbox.curselection()
@@ -221,8 +240,8 @@ def run_gui(directory):
                     if not generics and not ports:
                         tk.messagebox.showinfo("Info", f"Block '{name}' has no generics or ports.")
                     else:
-                        eb = EntityBlock(canvas, cx, cy, name, generics, ports, conduit=False)
-                        canvas.data["blocks"].append(eb)
+                        eblock = EntityBlock(canvas, cx, cy, name, generics, ports, conduit=False)
+                        canvas.data["blocks"].append(eblock)
             del canvas.data["drag_block"]
             blocks_listbox.unbind("<Motion>")
             blocks_listbox.unbind("<ButtonRelease-1>")
@@ -237,4 +256,5 @@ def run_gui(directory):
 
     canvas.bind("<ButtonPress-2>", on_pan_start)
     canvas.bind("<B2-Motion>", on_pan_move)
+    load_previous_configuration(canvas, os.path.join(directory, "Main.json"))
     root.mainloop()

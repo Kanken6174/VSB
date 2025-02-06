@@ -1,6 +1,7 @@
-#parser.py
+#vhdl_parser.py
 import os
 import re
+import xml.etree.ElementTree as ET
 
 def preprocess_vhdl(t):
     lines = t.split('\n')
@@ -152,3 +153,112 @@ def find_blocks(d):
                         else:
                             bd[name] = (name, g.copy(), p.copy())
     return list(bd.values())
+
+def parse_gpio_name(name):
+    m = re.match(r"(.*)\[(\d+)\]$", name)
+    if m:
+        return m.group(1), int(m.group(2))
+    return name, None
+
+def produce_port_entry(base_name, idx_list, direction):
+    if len(idx_list) == 1:
+        return {"name": f"{base_name}", "dir": direction, "type": "std_logic"}
+    else:
+        hi = max(idx_list)
+        lo = min(idx_list)
+        return {"name": base_name, "dir": direction, "type": f"std_logic_vector({hi} downto {lo})"}
+
+def parse_peri_xml(d):
+    path = os.path.join(d, "DIspx.peri.xml")
+    if not os.path.exists(path):
+        return [], []
+    tree = ET.parse(path)
+    root = tree.getroot()
+    ns = {'efxpt': 'http://www.efinixinc.com/peri_design_db'}
+
+    gps = root.findall('.//efxpt:gpio', ns)
+    input_bus_map = {}
+    output_bus_map = {}
+    inout_individual = []
+
+    for gp in gps:
+        n = gp.get('name','')
+        m = gp.get('mode','').lower()
+        if m == 'inout':
+            read_base, read_idx = parse_gpio_name(n+"_read")
+            write_base, write_idx = parse_gpio_name(n+"_write")
+            en_base, en_idx = parse_gpio_name(n+"_writeEnable")
+            inout_individual.append({"name": read_base, "idx": read_idx, "dir": "in"})
+            inout_individual.append({"name": write_base, "idx": write_idx, "dir": "out"})
+            inout_individual.append({"name": en_base, "idx": en_idx, "dir": "out"})
+        else:
+            base, idx = parse_gpio_name(n)
+            if m == 'input':
+                bus_map = input_bus_map
+                direct = 'in'
+            else:
+                bus_map = output_bus_map
+                direct = 'out'
+            if base not in bus_map:
+                bus_map[base] = {"dir": direct, "idx_set": set()}
+            bus_map[base]["idx_set"].add(idx if idx is not None else -1)
+
+    in_list = []
+    out_list = []
+
+    for k,info in input_bus_map.items():
+        direct = info["dir"]
+        idxs = sorted([x for x in info["idx_set"]])
+        if idxs == [-1]:
+            in_list.append({"name": k,"dir": direct,"type":"std_logic"})
+        else:
+            hi = max(idxs)
+            lo = min(idxs)
+            if hi == lo:
+                in_list.append({"name": k,"dir": direct,"type":"std_logic"})
+            else:
+                in_list.append({
+                    "name": k,
+                    "dir": direct,
+                    "type": f"std_logic_vector({hi} downto {lo})"
+                })
+
+    for k,info in output_bus_map.items():
+        direct = info["dir"]
+        idxs = sorted([x for x in info["idx_set"]])
+        if idxs == [-1]:
+            out_list.append({"name": k,"dir": direct,"type":"std_logic"})
+        else:
+            hi = max(idxs)
+            lo = min(idxs)
+            if hi == lo:
+                out_list.append({"name": k,"dir": direct,"type":"std_logic"})
+            else:
+                out_list.append({
+                    "name": k,
+                    "dir": direct,
+                    "type": f"std_logic_vector({hi} downto {lo})"
+                })
+
+    inout_in = []
+    inout_out = []
+    for x in inout_individual:
+        if x["dir"] == "in":
+            inout_in.append({"name": x["name"], "dir":"in","type":"std_logic"})
+        else:
+            inout_out.append({"name": x["name"], "dir":"out","type":"std_logic"})
+
+    board_in = in_list + inout_in
+    board_out = out_list + inout_out
+
+    # Parse PLL outputs as additional "inputs" to the core.
+    pll_list = root.findall('.//efxpt:pll', ns)
+    for pll in pll_list:
+        outs = pll.findall('.//efxpt:output_clock', ns)
+        for oc in outs:
+            clk_name = oc.get('name','')
+            # We'll treat these PLL outputs as additional "inputs" from the board's perspective
+            if clk_name:
+                board_in.append({"name": clk_name, "dir":"in", "type":"std_logic"})
+
+    return board_in, board_out

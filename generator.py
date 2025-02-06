@@ -14,18 +14,20 @@ def flip_direction(d):
 
 def get_default_assignment(v):
     s = v.lower()
-    m = re.search(r'\((\d+):0\)', s)
-    if "std_logic_vector" in s:
+    m = re.search(r'\((\d+)\s*downto\s*(\d+)\)', s)
+    if not m:
+        m = re.search(r'\((\d+):0\)', s)
+    if "std_logic_vector" in s or "signed" in s or "unsigned" in s:
         if m:
-            w = int(m.group(1)) + 1
+            hi = int(m.group(1))
+            lo = int(m.group(2))
+            w = abs(hi - lo) + 1
             return "(others => '0')" if w > 1 else "'0'"
         return "(others => '0')"
     if "std_logic" in s:
         return "'0'"
     if "integer" in s:
         return "0"
-    if "signed" in s or "unsigned" in s:
-        return "(others => '0')"
     return "'0'"
 
 def generate_top_level(canvas):
@@ -38,18 +40,18 @@ def generate_top_level(canvas):
     cp = []
     for x in b:
         for y in x.port_symbols:
-            if hasattr(y, "is_conduit") and y.is_conduit:
+            if getattr(y, "is_conduit", False):
                 cp.append(y)
 
-    tin = [pt for xx in cb for pt in xx.port_symbols if pt.port["dir"] in ["in", "inout"]]
-    tout = [pt for xx in cb for pt in xx.port_symbols if pt.port["dir"] in ["out", "inout"]]
-    tin += [pt for pt in cp if pt.port["dir"] in ["in", "inout"]]
-    tout += [pt for pt in cp if pt.port["dir"] in ["out", "inout"]]
+    tin = [pt for xx in cb for pt in xx.port_symbols if pt.port["dir"] in ["in","inout"]]
+    tout = [pt for xx in cb for pt in xx.port_symbols if pt.port["dir"] in ["out","inout"]]
+    tin += [pt for pt in cp if pt.port["dir"] in ["in","inout"]]
+    tout += [pt for pt in cp if pt.port["dir"] in ["out","inout"]]
 
     parent = {}
-    for x in b:
-        for y in x.port_symbols:
-            parent[y] = y
+    for x_ in b:
+        for y_ in x_.port_symbols:
+            parent[y_] = y_
 
     def fnd(p):
         if parent[p] != p:
@@ -63,7 +65,7 @@ def generate_top_level(canvas):
             parent[rq] = rp
 
     for x_ in c:
-        p1, p2, l, a = x_
+        p1, p2, _, _ = x_
         un(p1, p2)
 
     groups = defaultdict(list)
@@ -101,21 +103,26 @@ def generate_top_level(canvas):
     internal_signals = set(sn.values()) - top_level_signal_names
 
     with open(p, "w") as f:
-        f.write("""library ieee;
-use ieee.std_logic_1164.all;
-use ieee.numeric_std.all;
-
-""")
+        f.write("library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\n")
         f.write("entity Main is\n")
         f.write("    port(\n")
+        # collect unique top-level ports by name
+        unique_ports = {}
         all_conduits = [pt for xx in cb for pt in xx.port_symbols if getattr(xx, 'conduit', False)] + cp
-        for i, pt in enumerate(all_conduits):
-            if isinstance(pt.block, EntityBlock) and getattr(pt.block, 'conduit', False):
-                od = flip_direction(pt.port["dir"])
-            else:
-                od = pt.port["dir"]
-            line = f"        {pt.port['name']} : {od} {pt.port['type']}"
-            if i < len(all_conduits) - 1:
+        for pt in all_conduits:
+            pname = pt.port['name']
+            if pname not in unique_ports:
+                if isinstance(pt.block, EntityBlock) and getattr(pt.block, 'conduit', False):
+                    od = flip_direction(pt.port["dir"])
+                else:
+                    od = pt.port["dir"]
+                unique_ports[pname] = (pname, od, pt.port["type"])
+
+        up_keys = list(unique_ports.keys())
+        for i, key in enumerate(up_keys):
+            pname, odir, ptype = unique_ports[key]
+            line = f"        {pname} : {odir} {ptype}"
+            if i < len(up_keys) - 1:
                 line += ";"
             f.write(line + "\n")
         f.write("    );\n")
@@ -164,10 +171,7 @@ use ieee.numeric_std.all;
                 continue
             instance_count[blk.name] += 1
             idx = instance_count[blk.name] - 1
-            if instance_count[blk.name] > 1:
-                iname = f"{blk.name}_inst{idx}"
-            else:
-                iname = f"{blk.name}_inst"
+            iname = f"{blk.name}_inst{idx}" if instance_count[blk.name] > 1 else f"{blk.name}_inst"
             if blk.generics:
                 f.write(f"    {iname} : {blk.name} generic map(\n")
                 gm = []
