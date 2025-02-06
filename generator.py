@@ -32,7 +32,7 @@ def get_default_assignment(v):
 def generate_top_level(canvas):
     r = canvas.data.get("project_root", ".")
     os.makedirs(r, exist_ok=True)
-    p = os.path.join(r, "TopLevelAdapter.vhd")
+    p = os.path.join(r, "Main.vhd")
     b = canvas.data["blocks"]
     c = canvas.data["connections"]
     cb = [x for x in b if (isinstance(x, AdapterBlock) or isinstance(x, EntityBlock)) and getattr(x, 'conduit', False)]
@@ -108,7 +108,7 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
 """)
-        f.write("entity TopLevelAdapter is\n")
+        f.write("entity Main is\n")
         f.write("    port(\n")
         all_conduits = [pt for xx in cb for pt in xx.port_symbols if getattr(xx, 'conduit', False)] + cp
         for i, pt in enumerate(all_conduits):
@@ -121,8 +121,8 @@ use ieee.numeric_std.all;
                 line += ";"
             f.write(line + "\n")
         f.write("    );\n")
-        f.write("end TopLevelAdapter;\n\n")
-        f.write("architecture rtl of TopLevelAdapter is\n")
+        f.write("end Main;\n\n")
+        f.write("architecture Behavioral of Main is\n")
         if internal_signals:
             for sg in internal_signals:
                 match_ps = [pp for (pp, nm) in sn.items() if nm == sg]
@@ -224,7 +224,7 @@ use ieee.numeric_std.all;
                 f.write(",\n".join(lines_map))
                 f.write("\n    );\n\n")
 
-        f.write("end rtl;\n")
+        f.write("end Behavioral;\n")
 
     # Also save JSON
     out_json = {}
@@ -264,5 +264,5 @@ use ieee.numeric_std.all;
             "port1": p1.port["name"],
             "port2": p2.port["name"]
         })
-    with open(os.path.join(r, "TopLevelAdapter.json"), "w") as jf:
+    with open(os.path.join(r, "Main.json"), "w") as jf:
         json.dump(out_json, jf, indent=2)

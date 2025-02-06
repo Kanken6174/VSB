@@ -235,7 +235,7 @@ def run_gui(directory):
     }
     canvas.data["create_adapter_cb"] = lambda mx, my, a, b, sp, cp, old_line, color: create_adapter(canvas, mx, my, a, b, sp, cp, old_line, color)
 
-    load_previous_configuration(canvas, os.path.join(directory, "TopLevelAdapter.json"))
+    load_previous_configuration(canvas, os.path.join(directory, "Main.json"))
 
     def start_drag(e):
         s = blocks_listbox.curselection()
