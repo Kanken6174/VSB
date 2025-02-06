@@ -1,4 +1,4 @@
-# generator.py
+#generator.py
 import os
 import re
 import json
@@ -40,31 +40,38 @@ def generate_top_level(canvas):
         for y in x.port_symbols:
             if hasattr(y, "is_conduit") and y.is_conduit:
                 cp.append(y)
+
     tin = [pt for xx in cb for pt in xx.port_symbols if pt.port["dir"] in ["in", "inout"]]
     tout = [pt for xx in cb for pt in xx.port_symbols if pt.port["dir"] in ["out", "inout"]]
     tin += [pt for pt in cp if pt.port["dir"] in ["in", "inout"]]
     tout += [pt for pt in cp if pt.port["dir"] in ["out", "inout"]]
+
     parent = {}
     for x in b:
         for y in x.port_symbols:
             parent[y] = y
+
     def fnd(p):
         if parent[p] != p:
             parent[p] = fnd(parent[p])
         return parent[p]
+
     def un(p, q):
         rp = fnd(p)
         rq = fnd(q)
         if rp != rq:
             parent[rq] = rp
+
     for x_ in c:
         p1, p2, l, a = x_
         un(p1, p2)
+
     groups = defaultdict(list)
     for x_ in b:
         for y_ in x_.port_symbols:
             root = fnd(y_)
             groups[root].append(y_)
+
     sn = {}
     sc = 1
     for v_ in groups.values():
@@ -88,9 +95,11 @@ def generate_top_level(canvas):
             sc += 1
             for x_ in v_:
                 sn[x_] = s
+
     top_level_signal_names = set(pt.port["name"] for xx in cb for pt in xx.port_symbols)
     top_level_signal_names.update(pt.port["name"] for pt in cp)
     internal_signals = set(sn.values()) - top_level_signal_names
+
     with open(p, "w") as f:
         f.write("""library ieee;
 use ieee.std_logic_1164.all;
@@ -147,9 +156,8 @@ use ieee.numeric_std.all;
                     line += ";"
                 f.write(line + "\n")
             f.write("        );\n")
-            f.write(f"    end component;\n\n")
+            f.write("    end component;\n\n")
         f.write("begin\n\n")
-        from collections import defaultdict
         instance_count = defaultdict(int)
         for blk in b:
             if getattr(blk, "conduit", False):
